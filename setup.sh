@@ -439,6 +439,45 @@ prompt_yn() {
 	done
 }
 
+# prompt_select <label> <var> <option>...
+#
+# Numbered list. The stored value is the option string itself, so re-showing
+# the prompt after a "back" defaults to whatever was chosen last time.
+prompt_select() {
+	local label="$1" var_name="$2"
+	shift 2
+	local options=( "$@" )
+	local current="${!var_name:-}"
+	local default_idx=1 i choice
+
+	for i in "${!options[@]}"; do
+		if [[ "${options[$i]}" == "$current" ]]; then
+			default_idx=$(( i + 1 ))
+		fi
+	done
+
+	while true; do
+		printf '  %s %s%s%s\n' "$ARROW" "$BOLD" "$label" "$RESET"
+		for i in "${!options[@]}"; do
+			if (( i + 1 == default_idx )); then
+				printf '    %s>%s %s%d%s  %s %s(current)%s\n' \
+					"$GREEN" "$RESET" "$BOLD" "$(( i + 1 ))" "$RESET" "${options[$i]}" "$DIM" "$RESET"
+			else
+				printf '      %s%d%s  %s\n' "$BOLD" "$(( i + 1 ))" "$RESET" "${options[$i]}"
+			fi
+		done
+		printf '    %sNumber:%s ' "$DIM" "$RESET"
+		read_line choice
+		if is_back "$choice"; then return $BACK_RC; fi
+		choice="${choice:-$default_idx}"
+		if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#options[@]} )); then
+			printf -v "$var_name" '%s' "${options[$(( choice - 1 ))]}"
+			return 0
+		fi
+		print_warn "Enter a number between 1 and ${#options[@]} (or 'b' to go back)."
+	done
+}
+
 # Turn a stored true/false back into the y/n default for a re-shown prompt.
 yn_default() {
 	case "${1:-}" in
@@ -732,6 +771,7 @@ PROJECT_NAME=""; THEME_NAME=""; THEME_SLUG=""; TEXT_DOMAIN=""; FUNC_PREFIX=""
 THEME_DESCRIPTION=""; AUTHOR_NAME=""; AUTHOR_URI=""
 LOCAL_URL=""; BROWSERSYNC_PORT=""
 USE_ACF=""; CREATE_PLUGIN=""; PLUGIN_SLUG=""; INIT_GIT=""
+DATA_STRATEGY=""; SCAFFOLD_BINDINGS=""; SCAFFOLD_ABILITY=""
 PRIMARY_COLOR=""; SECONDARY_COLOR=""; TERTIARY_COLOR=""; DERIVE_SHADES=""
 CONTENT_WIDTH=""; WIDE_WIDTH=""
 INSTALL_DEPS=""; REMOVE_SCRIPT=""
@@ -857,6 +897,39 @@ step_plugin() {
 	return 0
 }
 
+step_data_strategy() {
+	print_section "Dynamic Content"
+	print_info "WordPress 7.0 can pull custom field values straight into core blocks"
+	print_info "through Block Bindings, which removes much of the historic reason to"
+	print_info "build a custom ACF block. This choice is written into CLAUDE.md so"
+	print_info "Claude reaches for the right tool first. It changes documentation and"
+	print_info "scaffolding only — nothing is locked in."
+	echo ""
+	prompt_select "How should dynamic content be built by default?" DATA_STRATEGY \
+		"Bindings first — core blocks + Block Bindings, custom blocks only when needed" \
+		"ACF blocks first — reach for a custom ACF block by default" \
+		"Decide per component — document both, no default" || return $?
+	return 0
+}
+
+step_scaffold() {
+	if [[ "$CREATE_PLUGIN" != "true" ]]; then
+		SCAFFOLD_BINDINGS="false"
+		SCAFFOLD_ABILITY="false"
+		return 0
+	fi
+
+	print_section "Plugin Scaffolding"
+	print_info "Optional starting points in the companion plugin. Both are working"
+	print_info "code with the registration wired up, not empty files."
+	echo ""
+	prompt_yn "Add a Block Bindings source (reads an ACF field into core blocks)?" \
+		"$(yn_default "$SCAFFOLD_BINDINGS" y)" SCAFFOLD_BINDINGS || return $?
+	prompt_yn "Add a WordPress Abilities API stub (7.0 AI/agent integration)?" \
+		"$(yn_default "$SCAFFOLD_ABILITY" n)" SCAFFOLD_ABILITY || return $?
+	return 0
+}
+
 step_git() {
 	prompt_yn "Initialize a git repository?" "$(yn_default "$INIT_GIT" y)" INIT_GIT || return $?
 	if [[ "$INIT_GIT" == "true" ]] && ! $HAVE_GIT; then
@@ -935,6 +1008,12 @@ step_review() {
 	printf '  BrowserSync:   %slocalhost:%s%s\n' "$BOLD" "$BROWSERSYNC_PORT" "$RESET"
 	printf '  ACF PRO:       %s%s%s\n' "$BOLD" "$([[ "$USE_ACF" == "true" ]] && echo Yes || echo No)" "$RESET"
 	printf '  Plugin:        %s%s%s\n' "$BOLD" "${PLUGIN_SLUG:-No}" "$RESET"
+	printf '  Dynamic data:  %s%s%s\n' "$BOLD" "${DATA_STRATEGY%% —*}" "$RESET"
+	if [[ "$CREATE_PLUGIN" == "true" ]]; then
+		printf '  Scaffolds:     %sbindings %s · ability stub %s%s\n' "$BOLD" \
+			"$([[ "$SCAFFOLD_BINDINGS" == "true" ]] && echo Yes || echo No)" \
+			"$([[ "$SCAFFOLD_ABILITY" == "true" ]] && echo Yes || echo No)" "$RESET"
+	fi
 	printf '  Primary:       %s%s%s\n' "$BOLD" "${PRIMARY_COLOR:-— (unchanged)}" "$RESET"
 	printf '  Secondary:     %s%s%s\n' "$BOLD" "${SECONDARY_COLOR:-— (unchanged)}" "$RESET"
 	printf '  Tertiary:      %s%s%s\n' "$BOLD" "${TERTIARY_COLOR:-— (unchanged)}" "$RESET"
@@ -966,6 +1045,8 @@ CONFIG_STEPS=(
 	step_port
 	step_acf
 	step_plugin
+	step_data_strategy
+	step_scaffold
 	step_git
 	step_colors
 	step_widths
@@ -1026,6 +1107,7 @@ plan                                                  # style.css header
 plan                                                  # package.json
 plan                                                  # dev server config
 plan                                                  # design tokens
+plan                                                  # Claude Code config
 if [[ "$CREATE_PLUGIN" == "true" ]]; then
 	plan                                              # scaffold plugin
 	plan                                              # wire into build
@@ -1195,9 +1277,9 @@ if ! $DRY_RUN; then
 		printf 'Author URI: %s\n'  "$AUTHOR_URI"
 		printf 'Description: %s\n' "$THEME_DESCRIPTION"
 		printf 'Version: 1.0.0\n'
-		printf 'Requires at least: 6.7\n'
-		printf 'Tested up to: 6.7\n'
-		printf 'Requires PHP: 8.0\n'
+		printf 'Requires at least: 7.0\n'
+		printf 'Tested up to: 7.0\n'
+		printf 'Requires PHP: 8.1\n'
 		printf 'License: GNU General Public License v2 or later\n'
 		printf 'License URI: https://www.gnu.org/licenses/gpl-2.0.html\n'
 		printf 'Text Domain: %s\n' "$TEXT_DOMAIN"
@@ -1430,7 +1512,58 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════════════
-#  7–9 — Companion plugin
+#  7 — Claude Code configuration
+# ══════════════════════════════════════════════════════════════════════════
+#
+# Two things need doing that copying files cannot: the hook scripts must be
+# executable (Dropbox and Windows filesystems do not preserve the bit), and
+# the dynamic-content default chosen above needs writing into CLAUDE.md so
+# Claude reaches for the right tool without being told each session.
+
+step_start "Preparing Claude Code configuration"
+set_context "preparing the .claude directory" \
+"Could not finish configuring .claude/. This does not affect the build.
+If the hooks do not fire, make them executable by hand:
+  chmod +x .claude/hooks/*.sh"
+
+if ! $DRY_RUN; then
+	CLAUDE_STEPS_TOTAL=2
+	step_progress 1 "$CLAUDE_STEPS_TOTAL" "hooks"
+
+	HOOK_COUNT=0
+	if [[ -d ".claude/hooks" ]]; then
+		for hook in .claude/hooks/*.sh; do
+			[[ -e "$hook" ]] || continue
+			chmod +x "$hook" 2>/dev/null || true
+			HOOK_COUNT=$(( HOOK_COUNT + 1 ))
+		done
+	fi
+
+	step_progress 2 "$CLAUDE_STEPS_TOTAL" "CLAUDE.md"
+
+	case "$DATA_STRATEGY" in
+		Bindings*)
+			STRATEGY_LINE="**Default for this project:** bindings first. Reach for core blocks plus Block Bindings before building a custom block. Build a block only when the component has structure that bindings and patterns cannot carry." ;;
+		ACF*)
+			STRATEGY_LINE="**Default for this project:** ACF blocks first. Custom ACF blocks are the normal unit of work here. Still prefer a binding for a single field dropped into an existing core block." ;;
+		*)
+			STRATEGY_LINE="**Default for this project:** decide per component. Weigh a binding against a custom block each time using the list above, and record the reasoning in the component's own notes." ;;
+	esac
+
+	if [[ -f "CLAUDE.md" ]]; then
+		do_sed -e "s${SD}^<!-- DATA_STRATEGY -->\$${SD}<!-- DATA_STRATEGY -->${SD}" CLAUDE.md 2>/dev/null || true
+		# Replace the line following the marker with the chosen strategy.
+		awk -v line="$STRATEGY_LINE" '
+			/^<!-- DATA_STRATEGY -->$/ { print; getline; print line; next }
+			{ print }
+		' CLAUDE.md > CLAUDE.md.setup.tmp && mv CLAUDE.md.setup.tmp CLAUDE.md
+	fi
+	MUTATED=true
+fi
+step_ok "${HOOK_COUNT:-0} hooks executable"
+
+# ══════════════════════════════════════════════════════════════════════════
+#  8–10 — Companion plugin
 # ══════════════════════════════════════════════════════════════════════════
 
 if [[ "$CREATE_PLUGIN" == "true" && -n "$PLUGIN_SLUG" ]]; then
@@ -1441,7 +1574,9 @@ if [[ "$CREATE_PLUGIN" == "true" && -n "$PLUGIN_SLUG" ]]; then
 and that no directory with that name already exists."
 
 	if ! $DRY_RUN; then
-		PLUGIN_FILES_TOTAL=8
+		PLUGIN_FILES_TOTAL=9
+		if [[ "$SCAFFOLD_BINDINGS" == "true" ]]; then PLUGIN_FILES_TOTAL=$(( PLUGIN_FILES_TOTAL + 1 )); fi
+		if [[ "$SCAFFOLD_ABILITY" == "true" ]]; then PLUGIN_FILES_TOTAL=$(( PLUGIN_FILES_TOTAL + 1 )); fi
 		PLUGIN_FILES_DONE=0
 		pfile() {
 			PLUGIN_FILES_DONE=$(( PLUGIN_FILES_DONE + 1 ))
@@ -1450,8 +1585,37 @@ and that no directory with that name already exists."
 		}
 
 		pfile "directories"
-		mkdir -p "plugins/${PLUGIN_SLUG}"/{includes,blocks,assets/css,assets/js,src/scss,src/js}
+		mkdir -p "plugins/${PLUGIN_SLUG}"/{includes,blocks,acf-json,assets/css,assets/js,src/scss,src/js}
 		MUTATED=true
+
+		# ACF Local JSON. ACF writes one file per field group here on every save
+		# in wp-admin and loads from them on init, which makes field definitions
+		# reviewable in a pull request instead of trapped in the database.
+		pfile "acf-json/"
+		cat > "plugins/${PLUGIN_SLUG}/acf-json/.gitkeep" << 'ACFJSONEOF'
+ACF Local JSON lives here.
+
+ACF writes a JSON file per field group, post type, taxonomy and options page
+every time you save one in wp-admin, then loads settings from these files
+instead of the database. Commit this directory: it is what makes field
+definitions reviewable and deployable.
+
+If the sync UI shows groups as out of date, ACF > Field Groups > Sync.
+WP-CLI equivalents are available as `wp acf json` (ACF 6.8+).
+
+This placeholder can be deleted once the directory has real content.
+ACFJSONEOF
+
+		# Build the require list for the main plugin file.
+		PLUGIN_REQUIRES="require_once ${PLUGIN_CONST}_PATH . 'includes/helpers.php';"
+		if [[ "$SCAFFOLD_BINDINGS" == "true" ]]; then
+			PLUGIN_REQUIRES="${PLUGIN_REQUIRES}
+require_once ${PLUGIN_CONST}_PATH . 'includes/block-bindings.php';"
+		fi
+		if [[ "$SCAFFOLD_ABILITY" == "true" ]]; then
+			PLUGIN_REQUIRES="${PLUGIN_REQUIRES}
+require_once ${PLUGIN_CONST}_PATH . 'includes/abilities.php';"
+		fi
 
 		pfile "${PLUGIN_SLUG}.php"
 		cat > "plugins/${PLUGIN_SLUG}/${PLUGIN_SLUG}.php" << PLUGINEOF
@@ -1482,7 +1646,38 @@ define( '${PLUGIN_CONST}_URL', plugin_dir_url( __FILE__ ) );
 // require_once ${PLUGIN_CONST}_PATH . 'includes/post-types.php';
 // require_once ${PLUGIN_CONST}_PATH . 'includes/acf-field-groups.php';
 // require_once ${PLUGIN_CONST}_PATH . 'includes/acf-options-page.php';
-require_once ${PLUGIN_CONST}_PATH . 'includes/helpers.php';
+${PLUGIN_REQUIRES}
+
+/**
+ * Point ACF Local JSON at this plugin.
+ *
+ * Field groups are then written to and loaded from plugins/${PLUGIN_SLUG}/acf-json/,
+ * which keeps field definitions in version control with the code that uses them
+ * rather than in the database.
+ */
+function ${PLUGIN_PREFIX}_acf_json_save_point( \$path ) {
+	return ${PLUGIN_CONST}_PATH . 'acf-json';
+}
+add_filter( 'acf/settings/save_json', '${PLUGIN_PREFIX}_acf_json_save_point' );
+
+function ${PLUGIN_PREFIX}_acf_json_load_point( \$paths ) {
+	\$paths[] = ${PLUGIN_CONST}_PATH . 'acf-json';
+	return \$paths;
+}
+add_filter( 'acf/settings/load_json', '${PLUGIN_PREFIX}_acf_json_load_point' );
+
+/**
+ * Enable the ACF block editor data store (ACF 6.8.1+, WordPress 6.7+).
+ *
+ * Routes ACF field values through Gutenberg's native REST save instead of the
+ * legacy metabox AJAX save. That gives revisions, autosave and undo over field
+ * data, and is required for live preview and editing of ACF values through the
+ * core Block Bindings UI.
+ *
+ * Commented out because it changes the save path for every field on the site —
+ * enable it deliberately and retest any custom JS hooked into ACF save events.
+ */
+// add_filter( 'acf/settings/enable_datastore', '__return_true' );
 
 /**
  * Register plugin blocks.
@@ -1604,6 +1799,227 @@ function ${PLUGIN_PREFIX}_register_options_pages() {
 add_action( 'acf/init', '${PLUGIN_PREFIX}_register_options_pages' );
 OPTEOF
 
+		if [[ "$SCAFFOLD_BINDINGS" == "true" ]]; then
+			pfile "includes/block-bindings.php"
+			cat > "plugins/${PLUGIN_SLUG}/includes/block-bindings.php" << BINDEOF
+<?php
+/**
+ * Block Bindings Source
+ *
+ * Lets a core block pull its value from an ACF field, with no custom block.
+ * Bind a heading, paragraph, image, button, post-date or navigation link to a
+ * field and WordPress renders the field value in its place:
+ *
+ *   <!-- wp:heading {"metadata":{"bindings":{"content":{
+ *          "source":"${PLUGIN_SLUG}/acf-field","args":{"key":"page_subtitle"}}}}} -->
+ *   <h2 class="wp-block-heading"></h2>
+ *   <!-- /wp:heading -->
+ *
+ * ACF ships its own source, "acf/field", from 6.8.1 — including editor-side
+ * editing of the bound value. Prefer it when it fits. Register your own, as
+ * here, when you need a source name you control, an argument shape ACF's does
+ * not offer, a value that is computed rather than stored, or a binding that
+ * must keep working if ACF is not installed.
+ *
+ * Note on the API: register_block_bindings_source() accepts exactly three
+ * properties — label, get_value_callback and uses_context. There is no PHP
+ * write path. Making a bound value editable in the editor additionally
+ * requires a JavaScript registerBlockBindingsSource() implementing getValues,
+ * setValues and canUserEditValue.
+ *
+ * @package ${PLUGIN_TITLE}
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Register the bindings source.
+ */
+function ${PLUGIN_PREFIX}_register_block_bindings() {
+	if ( ! function_exists( 'register_block_bindings_source' ) ) {
+		return;
+	}
+
+	register_block_bindings_source(
+		'${PLUGIN_SLUG}/acf-field',
+		array(
+			'label'              => __( '${PLUGIN_TITLE} field', '${PLUGIN_SLUG}' ),
+			'get_value_callback' => '${PLUGIN_PREFIX}_get_binding_value',
+			'uses_context'       => array( 'postId', 'postType' ),
+		)
+	);
+}
+add_action( 'init', '${PLUGIN_PREFIX}_register_block_bindings' );
+
+/**
+ * Resolve a bound attribute to an ACF field value.
+ *
+ * @param array     \$source_args    Args from the block's metadata.bindings entry.
+ * @param WP_Block  \$block_instance The block being rendered.
+ * @param string    \$attribute_name The attribute being bound.
+ * @return string|null Value, or null to leave the block's fallback content.
+ */
+function ${PLUGIN_PREFIX}_get_binding_value( \$source_args, \$block_instance, \$attribute_name ) {
+	if ( empty( \$source_args['key'] ) ) {
+		return null;
+	}
+
+	if ( ! function_exists( 'get_field' ) ) {
+		return null;
+	}
+
+	\$post_id = \$block_instance->context['postId'] ?? get_the_ID();
+
+	if ( ! \$post_id ) {
+		return null;
+	}
+
+	\$value = get_field( \$source_args['key'], \$post_id );
+
+	// Bindings render into a text or attribute slot, so hand back a scalar.
+	if ( is_array( \$value ) || is_object( \$value ) ) {
+		return null;
+	}
+
+	return null === \$value || '' === \$value ? null : (string) \$value;
+}
+
+/**
+ * Make a custom block's attributes bindable.
+ *
+ * Core's bindable set covers paragraph, heading, image, button, post-date and
+ * the two navigation link blocks. Custom blocks opt in per attribute. Since
+ * WordPress 7.0 anything bindable is automatically overridable in patterns too.
+ *
+ * add_filter(
+ *     'block_bindings_supported_attributes_${PLUGIN_SLUG}/example',
+ *     function ( \$supported_attributes ) {
+ *         \$supported_attributes[] = 'title';
+ *         return \$supported_attributes;
+ *     }
+ * );
+ */
+BINDEOF
+		fi
+
+		if [[ "$SCAFFOLD_ABILITY" == "true" ]]; then
+			pfile "includes/abilities.php"
+			cat > "plugins/${PLUGIN_SLUG}/includes/abilities.php" << ABILEOF
+<?php
+/**
+ * WordPress Abilities API
+ *
+ * An "ability" is a named, schema-described capability this site exposes to
+ * other tools — REST clients, the JavaScript command palette, and AI agents
+ * over MCP. The server-side API landed in WordPress 6.9; 7.0 added the
+ * client-side counterpart and the AI Client that consumes it.
+ *
+ * Two hooks matter and both are mandatory:
+ *   wp_abilities_api_categories_init  register categories
+ *   wp_abilities_api_init             register abilities
+ * Registering outside them triggers _doing_it_wrong() and the ability is
+ * silently absent.
+ *
+ * The example below is deliberately trivial and read-only. Replace it, or
+ * delete this file — nothing else depends on it.
+ *
+ * @package ${PLUGIN_TITLE}
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Register the ability category. Abilities can only reference a category that
+ * already exists.
+ */
+function ${PLUGIN_PREFIX}_register_ability_categories() {
+	if ( ! function_exists( 'wp_register_ability_category' ) ) {
+		return;
+	}
+
+	wp_register_ability_category(
+		'${PLUGIN_SLUG}',
+		array(
+			'label'       => __( '${PLUGIN_TITLE}', '${PLUGIN_SLUG}' ),
+			'description' => __( 'Capabilities exposed by ${PLUGIN_TITLE}.', '${PLUGIN_SLUG}' ),
+		)
+	);
+}
+add_action( 'wp_abilities_api_categories_init', '${PLUGIN_PREFIX}_register_ability_categories' );
+
+/**
+ * Register abilities.
+ */
+function ${PLUGIN_PREFIX}_register_abilities() {
+	if ( ! function_exists( 'wp_register_ability' ) ) {
+		return;
+	}
+
+	wp_register_ability(
+		'${PLUGIN_SLUG}/site-summary',
+		array(
+			'label'         => __( 'Get site summary', '${PLUGIN_SLUG}' ),
+			'description'   => __( 'Returns the site name, tagline and published post count.', '${PLUGIN_SLUG}' ),
+			'category'      => '${PLUGIN_SLUG}',
+			'input_schema'  => array(
+				'type'                 => 'object',
+				'properties'           => array(),
+				'additionalProperties' => false,
+			),
+			'output_schema' => array(
+				'type'       => 'object',
+				'properties' => array(
+					'name'        => array( 'type' => 'string' ),
+					'description' => array( 'type' => 'string' ),
+					'posts'       => array( 'type' => 'integer' ),
+				),
+			),
+			'execute_callback'    => function () {
+				return array(
+					'name'        => get_bloginfo( 'name' ),
+					'description' => get_bloginfo( 'description' ),
+					'posts'       => (int) wp_count_posts()->publish,
+				);
+			},
+			// Required. Never __return_true for anything with side effects or
+			// privileged data — an ability is reachable by agents, not just by
+			// a logged-in human clicking through wp-admin.
+			'permission_callback' => function () {
+				return current_user_can( 'edit_posts' );
+			},
+			'meta'                => array( 'show_in_rest' => true ),
+		)
+	);
+}
+add_action( 'wp_abilities_api_init', '${PLUGIN_PREFIX}_register_abilities' );
+
+/**
+ * Calling a model from PHP, for reference.
+ *
+ * WordPress 7.0 ships a provider-agnostic client. Nothing is guaranteed to be
+ * configured, so feature-detect twice: wp_supports_ai() for the site-wide kill
+ * switch (the WP_AI_SUPPORT constant and the wp_supports_ai filter), then the
+ * per-capability check, then handle WP_Error from the call itself.
+ *
+ * function ${PLUGIN_PREFIX}_summarize( \$text ) {
+ *     if ( ! function_exists( 'wp_supports_ai' ) || ! wp_supports_ai() ) {
+ *         return new WP_Error( 'ai_unavailable', __( 'No AI provider is configured.', '${PLUGIN_SLUG}' ) );
+ *     }
+ *
+ *     \$result = wp_ai_client_prompt( 'Summarize the following in two sentences: ' . \$text )
+ *         ->using_temperature( 0.3 )
+ *         ->generate_text();
+ *
+ *     return is_wp_error( \$result ) ? \$result : \$result;
+ * }
+ */
+ABILEOF
+		fi
+
 		pfile "src/scss/plugin.scss"
 		cat > "plugins/${PLUGIN_SLUG}/src/scss/plugin.scss" << PSCSSEOF
 // ==========================================================================
@@ -1623,7 +2039,7 @@ PSCSSEOF
  */
 PJSEOF
 	fi
-	step_ok "8 files"
+	step_ok "${PLUGIN_FILES_DONE:-0} items"
 
 	# ── Wire the plugin into the build ────────────────────────────────
 	step_start "Wiring the plugin into the build system"

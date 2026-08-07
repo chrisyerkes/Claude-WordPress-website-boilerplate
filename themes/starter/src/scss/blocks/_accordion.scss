@@ -1,0 +1,58 @@
+// ==========================================================================
+// Accordion (core/accordion, WordPress 6.9+)
+// ==========================================================================
+// Core ships the Accordion block with no presentational styling at all —
+// borders, spacing, typography and colors come from theme.json under
+// styles.blocks."core/accordion-*".
+//
+// What lives here instead is everything theme.json cannot express for these
+// blocks: interactive states, the open/closed icon transform, and the panel
+// reveal. Keep static appearance in theme.json so it stays editable in the
+// Site Editor, and keep only state-dependent rules here.
+
+.wp-block-accordion-heading {
+	// The button, not the heading, is the interactive element. Core applies
+	// theme.json padding to it via the block's own selector, so only
+	// behaviour is set here.
+	&__toggle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--wp--preset--spacing--s);
+		width: 100%;
+		background: none;
+		border: 0;
+		font: inherit;
+		color: inherit;
+		text-align: left;
+		cursor: pointer;
+
+		&:hover {
+			color: var(--wp--preset--color--primary-dark);
+		}
+
+		// :focus-visible rather than :focus so a mouse click does not draw a
+		// ring, but keyboard focus always does.
+		&:focus-visible {
+			outline: 2px solid var(--wp--preset--color--primary);
+			outline-offset: -2px;
+		}
+	}
+
+	&__toggle-icon {
+		flex: 0 0 auto;
+		line-height: 1;
+		transition: transform 200ms ease;
+
+		@media (prefers-reduced-motion: reduce) {
+			transition: none;
+		}
+	}
+}
+
+// Core adds .is-open to the item while its panel is expanded.
+.wp-block-accordion-item.is-open {
+	.wp-block-accordion-heading__toggle-icon {
+		transform: rotate(45deg);
+	}
+}

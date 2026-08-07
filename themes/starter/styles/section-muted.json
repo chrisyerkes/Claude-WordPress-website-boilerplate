@@ -1,0 +1,20 @@
+{
+	"$schema": "https://schemas.wp.org/wp/7.0/theme.json",
+	"version": 3,
+	"title": "Muted Section",
+	"slug": "section-muted",
+	"blockTypes": [ "core/group", "core/columns", "core/cover" ],
+	"styles": {
+		"color": {
+			"background": "var:preset|color|off-white",
+			"text": "var:preset|color|near-black"
+		},
+		"elements": {
+			"heading": {
+				"color": {
+					"text": "var:preset|color|primary"
+				}
+			}
+		}
+	}
+}

@@ -17,31 +17,7 @@ require_once get_template_directory() . '/inc/theme-setup.php';
 require_once get_template_directory() . '/inc/enqueue.php';
 require_once get_template_directory() . '/inc/helpers.php';
 require_once get_template_directory() . '/inc/icons.php';
-
-/**
- * Register ACF blocks from the /blocks/ directory.
- *
- * Each block must have a block.json file with the "acf" key.
- * Only runs if ACF PRO is active.
- */
-function starter_register_blocks() {
-	if ( ! function_exists( 'acf_register_block_type' ) ) {
-		return;
-	}
-
-	$blocks_dir = get_template_directory() . '/blocks';
-
-	if ( ! is_dir( $blocks_dir ) ) {
-		return;
-	}
-
-	$blocks = glob( $blocks_dir . '/*/block.json' );
-
-	foreach ( $blocks as $block_json ) {
-		register_block_type( dirname( $block_json ) );
-	}
-}
-add_action( 'init', 'starter_register_blocks' );
+require_once get_template_directory() . '/inc/blocks.php';
 
 /**
  * Register block pattern categories.
@@ -57,32 +33,57 @@ function starter_register_pattern_categories() {
 add_action( 'init', 'starter_register_pattern_categories' );
 
 /**
- * Register custom block styles.
- *
- * Add project-specific block styles here as the design requires.
- * Examples:
- *   register_block_style( 'core/button', [ 'name' => 'starter-outline', 'label' => 'Outline' ] );
- *   register_block_style( 'core/image', [ 'name' => 'starter-rounded', 'label' => 'Rounded' ] );
- */
-function starter_register_block_styles() {
-	// Add block styles here as needed.
-}
-add_action( 'init', 'starter_register_block_styles' );
-
-/**
  * ACF PRO dependency notice.
  *
- * Shows an admin notice if ACF PRO is required but not active.
- * Remove this function if the project does not use ACF.
+ * Only shown when the theme actually ships blocks that declare an "acf" key,
+ * so a project built entirely from core blocks never sees it.
+ *
+ * Detection uses acf_add_options_page(), which is PRO-only and current.
+ * The older idiom, function_exists( 'acf_register_block_type' ), still works
+ * but tests for a function ACF deprecated in 6.0.
+ *
+ * Delete this function if the project does not use ACF.
  */
 function starter_acf_admin_notice() {
-	if ( function_exists( 'acf_register_block_type' ) ) {
+	if ( function_exists( 'acf_add_options_page' ) ) {
 		return;
 	}
 
-	// Only show if there are block.json files expecting ACF.
+	if ( ! current_user_can( 'activate_plugins' ) ) {
+		return;
+	}
+
 	$blocks_dir = get_template_directory() . '/blocks';
-	if ( ! is_dir( $blocks_dir ) || empty( glob( $blocks_dir . '/*/block.json' ) ) ) {
+
+	if ( ! is_dir( $blocks_dir ) ) {
+		return;
+	}
+
+	$block_files = glob( $blocks_dir . '/*/block.json' );
+
+	if ( empty( $block_files ) ) {
+		return;
+	}
+
+	// Only warn if at least one block actually needs ACF.
+	$needs_acf = false;
+
+	foreach ( $block_files as $block_json ) {
+		$raw = file_get_contents( $block_json ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local theme file.
+
+		if ( false === $raw ) {
+			continue;
+		}
+
+		$data = json_decode( $raw, true );
+
+		if ( is_array( $data ) && isset( $data['acf'] ) ) {
+			$needs_acf = true;
+			break;
+		}
+	}
+
+	if ( ! $needs_acf ) {
 		return;
 	}
 

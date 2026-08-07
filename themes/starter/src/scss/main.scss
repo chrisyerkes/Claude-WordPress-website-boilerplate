@@ -20,7 +20,11 @@
 @use 'components/forms';
 @use 'components/pagination';
 
-// Blocks — add one @use per custom block as you build them
+// Blocks — one @use per block needing CSS beyond what theme.json can express.
+// Keep static appearance in theme.json so it stays editable in the Site
+// Editor; put only interactive states and behaviour here.
+@use 'blocks/accordion';
+
 // @use 'blocks/example-block';
 
 // Layout
