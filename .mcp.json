@@ -1,0 +1,11 @@
+{
+	"mcpServers": {
+		"playwright": {
+			"command": "npx",
+			"args": [
+				"@anthropic-ai/mcp-playwright@latest"
+			],
+			"description": "Browser automation for visual testing and screenshot comparison"
+		}
+	}
+}

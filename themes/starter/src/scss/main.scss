@@ -1,0 +1,32 @@
+// ==========================================================================
+// Main Stylesheet
+// ==========================================================================
+// This is the primary theme stylesheet.
+// It imports all partials and compiles to assets/css/main.css.
+
+// Abstracts (no output — variables, mixins, functions)
+@use 'abstracts/variables';
+@use 'abstracts/mixins';
+@use 'abstracts/functions';
+
+// Base
+@use 'base/reset';
+@use 'base/typography';
+@use 'base/accessibility';
+
+// Components
+@use 'components/buttons';
+@use 'components/cards';
+@use 'components/forms';
+@use 'components/pagination';
+
+// Blocks — add one @use per custom block as you build them
+// @use 'blocks/example-block';
+
+// Layout
+@use 'layout/header';
+@use 'layout/footer';
+@use 'layout/templates';
+
+// Utilities (load last for specificity)
+@use 'utilities/helpers';

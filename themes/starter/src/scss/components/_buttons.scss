@@ -1,0 +1,13 @@
+// ==========================================================================
+// Buttons
+// ==========================================================================
+// Button styles beyond what theme.json provides.
+// Add custom block styles for core/button here.
+
+.wp-block-button__link {
+	transition: background-color 300ms ease, color 300ms ease, transform 150ms ease;
+
+	&:active {
+		transform: scale(0.98);
+	}
+}

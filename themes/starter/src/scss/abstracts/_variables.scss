@@ -1,0 +1,27 @@
+// ==========================================================================
+// Variables
+// ==========================================================================
+// SCSS variables that mirror theme.json design tokens.
+// Use these in SCSS functions and mixins only.
+// Compiled CSS should reference var(--wp--preset--color--*) etc.
+
+// Breakpoints
+$bp-mobile:  375px;
+$bp-tablet:  768px;
+$bp-desktop: 1024px;
+$bp-wide:    1440px;
+$bp-ultra:   1920px;
+
+// Layout
+$content-width: 1170px;
+$wide-width:    1440px;
+
+// Border Radius
+$radius-button: 4px;
+$radius-card:   8px;
+$radius-pill:   999px;
+
+// Transitions
+$transition-fast:   150ms ease;
+$transition-normal: 300ms ease;
+$transition-slow:   500ms ease;

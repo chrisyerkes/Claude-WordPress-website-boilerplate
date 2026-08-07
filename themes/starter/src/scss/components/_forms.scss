@@ -1,0 +1,35 @@
+// ==========================================================================
+// Forms
+// ==========================================================================
+// Base form element styles. Third-party form plugin overrides
+// (Gravity Forms, WPForms, etc.) should be in their own entry points.
+
+input[type='text'],
+input[type='email'],
+input[type='url'],
+input[type='tel'],
+input[type='search'],
+input[type='password'],
+input[type='number'],
+textarea,
+select {
+	width: 100%;
+	padding: 0.625rem 0.875rem;
+	border: 1px solid var(--wp--preset--color--light-gray);
+	border-radius: var(--wp--custom--border-radius--button);
+	background: var(--wp--preset--color--white);
+	color: var(--wp--preset--color--near-black);
+	font-size: var(--wp--preset--font-size--medium);
+	transition: border-color 200ms ease;
+
+	&:focus {
+		outline: none;
+		border-color: var(--wp--preset--color--primary);
+		box-shadow: 0 0 0 1px var(--wp--preset--color--primary);
+	}
+}
+
+textarea {
+	min-height: 150px;
+	resize: vertical;
+}

@@ -1,0 +1,32 @@
+{
+	"extends": "stylelint-config-standard-scss",
+	"rules": {
+		"selector-class-pattern": null,
+		"scss/dollar-variable-pattern": null,
+		"scss/percent-placeholder-pattern": null,
+		"no-descending-specificity": null,
+		"declaration-no-important": [true, {
+			"severity": "warning",
+			"message": "!important should only be used for third-party plugin style overrides"
+		}],
+		"color-no-hex": [true, {
+			"severity": "warning",
+			"message": "Use var(--wp--preset--color--*) from theme.json instead of hex values. SCSS variables in _variables.scss are the exception for mixins/functions."
+		}],
+		"max-nesting-depth": 4,
+		"selector-max-compound-selectors": 4,
+		"scss/at-mixin-pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+		"custom-property-pattern": null,
+		"scss/comment-no-empty": null,
+		"scss/dollar-variable-colon-space-after": null,
+		"scss/dollar-variable-colon-space-before": null,
+		"declaration-block-no-redundant-longhand-properties": [true, {
+			"ignoreShorthands": ["grid-template", "grid-template-areas", "inset"]
+		}]
+	},
+	"ignoreFiles": [
+		"themes/starter/assets/css/**",
+		"plugins/*/assets/css/**",
+		"node_modules/**"
+	]
+}

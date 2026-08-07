@@ -1,0 +1,56 @@
+# ── WordPress core (wp-content level) ─────────────────────────────
+index.php
+upgrade/
+upgrade-temp-backup/
+uploads/
+backup-db/
+advanced-cache.php
+wp-cache-config.php
+
+# ── Third-party plugins (managed outside version control) ────────
+plugins/*
+!plugins/index.php
+# Uncomment and rename when you create a companion plugin:
+# !plugins/starter-plugin/
+
+# ── Default/unused themes ────────────────────────────────────────
+themes/twentytwentythree/
+themes/twentytwentyfour/
+themes/twentytwentyfive/
+themes/index.php
+
+# ── Compiled assets (built from src/) ────────────────────────────
+themes/starter/assets/css/*.css
+themes/starter/assets/css/*.css.map
+themes/starter/assets/js/*.js
+themes/starter/assets/js/*.js.map
+# PLUGIN_COMPILED_START (setup.sh will uncomment these when a plugin is created)
+# plugins/starter-plugin/assets/css/*.css
+# plugins/starter-plugin/assets/css/*.css.map
+# plugins/starter-plugin/assets/js/*.js
+# plugins/starter-plugin/assets/js/*.js.map
+# PLUGIN_COMPILED_END
+
+# ── Dependencies ─────────────────────────────────────────────────
+node_modules/
+package-lock.json
+
+# ── OS files ─────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Editor files ─────────────────────────────────────────────────
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# ── Local development ────────────────────────────────────────────
+*.log
+.env*
+
+# ── Playwright / reference screenshots ──────────────────────────
+.playwright-mcp/

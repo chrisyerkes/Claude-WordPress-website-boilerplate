@@ -1,0 +1,38 @@
+{
+	"name": "starter-build",
+	"version": "1.0.0",
+	"description": "Build tooling for WordPress block theme",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"scss": "node build/compile-scss.mjs",
+		"scss:watch": "node build/compile-scss.mjs --watch",
+		"js": "node build/bundle-js.mjs",
+		"js:watch": "node build/bundle-js.mjs --watch",
+		"build": "node build/compile-scss.mjs --minify && node build/bundle-js.mjs --minify",
+		"dev": "node build/dev-server.mjs",
+		"lint:scss": "stylelint \"themes/starter/src/scss/**/*.scss\" \"plugins/*/src/scss/**/*.scss\"",
+		"lint:js": "eslint \"themes/starter/src/js/**/*.js\" \"plugins/*/src/js/**/*.js\" \"build/**/*.mjs\"",
+		"lint": "npm run lint:scss && npm run lint:js"
+	},
+	"devDependencies": {
+		"autoprefixer": "^10.4.21",
+		"browser-sync": "^3.0.4",
+		"chokidar": "^3.6.0",
+		"esbuild": "^0.28.1",
+		"eslint": "^9.21.0",
+		"postcss": "^8.5.3",
+		"sass-embedded": "^1.86.0",
+		"stylelint": "^17.14.1",
+		"stylelint-config-standard-scss": "^17.0.0"
+	},
+	"browserslist": [
+		"last 2 versions",
+		"> 1%",
+		"not dead"
+	],
+	"engines": {
+		"node": ">=20.0.0"
+	},
+	"dependencies": {}
+}

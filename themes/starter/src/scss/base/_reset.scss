@@ -1,0 +1,39 @@
+// ==========================================================================
+// Reset / Normalization
+// ==========================================================================
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	padding: 0;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+img,
+picture,
+video,
+canvas,
+svg {
+	display: block;
+	max-width: 100%;
+	height: auto;
+}
+
+input,
+button,
+textarea,
+select {
+	font: inherit;
+}
+
+// Remove default list styles in WordPress block contexts.
+.wp-block-navigation,
+.wp-block-list {
+	list-style: none;
+}

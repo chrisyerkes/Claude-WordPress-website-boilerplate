@@ -1,0 +1,14 @@
+// ==========================================================================
+// Editor Styles
+// ==========================================================================
+// Editor-specific overrides only. Things that should look different in the
+// block editor vs. the front-end.
+//
+// Both main.css and this file are loaded in the editor via add_editor_style().
+// Only add rules here that are genuinely editor-only.
+
+// Example: Make ACF blocks with hidden front-end states visible in preview.
+// .starter-example-block--preview {
+// 	display: block !important;
+// 	opacity: 1 !important;
+// }
