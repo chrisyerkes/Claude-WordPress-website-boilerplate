@@ -3,7 +3,8 @@
 		"playwright": {
 			"command": "npx",
 			"args": [
-				"@anthropic-ai/mcp-playwright@latest"
+				"-y",
+				"@playwright/mcp@latest"
 			],
 			"description": "Browser automation for visual testing and screenshot comparison"
 		}
