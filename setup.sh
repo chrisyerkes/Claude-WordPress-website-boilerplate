@@ -753,8 +753,10 @@ show_help() {
 
     Windows: spawn ... dart.exe ENOENT, or git "Filename too long"
         The site path is too deep: node_modules pushes files past the
-        260-character limit. Move the site somewhere shallower. (Preflight
-        warns when the path is over 185 characters.)
+        260-character limit. Move the site somewhere shallower, which fixes
+        both. (Preflight warns when the path is over 185 characters.)
+        For the git error alone:
+          git config --global core.longpaths true
 
     Windows: git "detected dubious ownership"
         The drive does not record ownership (exFAT/FAT, network shares,
@@ -940,7 +942,7 @@ preflight() {
 			local winpath
 			winpath=$(pwd -W 2>/dev/null || pwd)
 			if (( ${#winpath} > 185 )); then
-				PREFLIGHT_WARNINGS+=("This path is ${#winpath} characters. Deep files pass Windows' 260-character limit: the SCSS build fails with 'spawn … dart.exe ENOENT' and git with 'Filename too long'. Move the site somewhere shallower.")
+				PREFLIGHT_WARNINGS+=("This path is ${#winpath} characters. Deep files pass Windows' 260-character limit: the SCSS build fails with 'spawn … dart.exe ENOENT' and git with 'Filename too long'. Move the site somewhere shallower (for git alone: git config --global core.longpaths true).")
 			fi
 			;;
 	esac
@@ -2669,6 +2671,10 @@ Text domain: ${TEXT_DOMAIN}" >/dev/null 2>>"$GIT_LOG" || GIT_OK=false
 				print_info "  ownership (exFAT/FAT, some network shares and RAM disks). Either"
 				print_info "  move the site to an NTFS drive, or trust this one folder:"
 				print_info "    git config --global --add safe.directory \"$(pwd)\""
+			elif grep -q 'Filename too long' "$GIT_LOG" 2>/dev/null; then
+				print_info "  A path passed Windows' 260-character limit. Either move the site"
+				print_info "  somewhere shallower, or let git handle long paths:"
+				print_info "    git config --global core.longpaths true"
 			elif grep -qiE 'tell me who you are|user\.email|user\.name' "$GIT_LOG" 2>/dev/null; then
 				print_info "  No git identity configured:"
 				print_info "    git config --global user.name  \"Your Name\""
