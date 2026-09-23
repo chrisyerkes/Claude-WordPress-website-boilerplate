@@ -51,6 +51,7 @@ Thumbs.db
 # ── Local development ────────────────────────────────────────────
 *.log
 .env*
+.claude/settings.local.json
 
 # ── Playwright / reference screenshots ──────────────────────────
 .playwright-mcp/

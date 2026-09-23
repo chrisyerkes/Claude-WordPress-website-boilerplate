@@ -65,14 +65,17 @@ export async function buildAll( { minify = isMinify } = {} ) {
 				logLevel: 'warning',
 			} );
 			console.log( `✓ ${ entry.output }` );
+			return true;
 		} catch ( err ) {
 			console.error( `✗ ${ entry.input }: ${ err.message }` );
+			return false;
 		}
 	} );
 
-	await Promise.all( promises );
+	const results = await Promise.all( promises );
 	const elapsed = Date.now() - startTime;
 	console.log( `Done (${ elapsed }ms)` );
+	return results.filter( ( ok ) => ! ok ).length;
 }
 
 // ── Execute ────────────────────────────────────────────────────────────
@@ -84,8 +87,10 @@ const isMain =
 	process.argv[ 1 ] &&
 	resolve( process.argv[ 1 ] ) === fileURLToPath( import.meta.url );
 
-if ( isMain ) {
-	await buildAll();
+// A failed entry must fail the process, or `npm run build` and setup.sh
+// report success with the output missing. Watch mode keeps running.
+if ( isMain && ( await buildAll() ) > 0 && ! isWatch ) {
+	process.exitCode = 1;
 }
 
 if ( isMain && isWatch ) {

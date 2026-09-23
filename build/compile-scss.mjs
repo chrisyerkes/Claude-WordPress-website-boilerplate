@@ -100,15 +100,19 @@ async function compileEntry( entry ) {
 
 		const elapsed = Date.now() - startTime;
 		console.log( `✓ ${ entry.output } (${ elapsed }ms)` );
+		return true;
 	} catch ( err ) {
 		console.error( `✗ ${ entry.input }: ${ err.message }` );
+		return false;
 	}
 }
 
+// Resolves to the number of entries that failed.
 export async function compileAll( { minify = isMinify } = {} ) {
 	isMinify = minify;
 	console.log( `\nCompiling SCSS${ isMinify ? ' (minified)' : '' }…` );
-	await Promise.all( entries.map( compileEntry ) );
+	const results = await Promise.all( entries.map( compileEntry ) );
+	return results.filter( ( ok ) => ! ok ).length;
 }
 
 // ── Execute ────────────────────────────────────────────────────────────
@@ -121,8 +125,10 @@ const isMain =
 	process.argv[ 1 ] &&
 	resolve( process.argv[ 1 ] ) === fileURLToPath( import.meta.url );
 
-if ( isMain ) {
-	await compileAll();
+// A failed entry must fail the process, or `npm run build` and setup.sh
+// report success with the CSS missing. Watch mode keeps running.
+if ( isMain && ( await compileAll() ) > 0 && ! isWatch ) {
+	process.exitCode = 1;
 }
 
 if ( isMain && isWatch ) {

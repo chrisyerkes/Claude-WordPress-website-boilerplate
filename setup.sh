@@ -8,15 +8,19 @@
 # ╚══════════════════════════════════════════════════════════════════════╝
 #
 # Usage:
-#   ./setup.sh              Interactive setup
-#   ./setup.sh --dry-run    Show what would change without writing anything
-#   ./setup.sh --help       Usage plus a troubleshooting guide
+#   ./setup.sh                   Interactive setup
+#   ./setup.sh --answers <file>  Non-interactive: read answers from a KEY=value file
+#   ./setup.sh --dry-run         Show what would change without writing anything
+#   ./setup.sh --help            Usage plus a troubleshooting guide
 #
 # At any prompt, type "b" (or "back") to return to the previous question.
 #
 # Environment overrides:
 #   SETUP_ALLOW_NONINTERACTIVE=1   Skip the "stdin is a terminal" guard
 #   NO_COLOR=1                     Disable ANSI colors
+#
+# Exit codes: 0 success · 1 preflight or runtime failure · 2 bad option or
+# invalid answers file (nothing written) · 130 interrupted
 #
 
 set -uo pipefail
@@ -26,6 +30,25 @@ set -E    # propagate the ERR trap into functions and subshells
 #  Terminal capabilities, colors, symbols
 # ══════════════════════════════════════════════════════════════════════════
 
+set_symbols() {
+	CHECK="${GREEN}✓${RESET}"
+	ARROW="${CYAN}❯${RESET}"
+	WARN_SYM="${YELLOW}!${RESET}"
+	CROSS="${RED}✗${RESET}"
+	SKIP_SYM="${DIM}·${RESET}"
+}
+
+# Plain output: no colors, no cursor control, one line per progress event.
+# Used when stdout is not a terminal, and always in --answers mode so a
+# calling process gets parseable lines even when it allocates a PTY.
+use_plain_output() {
+	IS_TTY=false
+	BOLD=''; DIM=''; GREEN=''; CYAN=''; YELLOW=''
+	RED=''; BLUE=''; MAGENTA=''; RESET=''
+	HIDE_CURSOR=''; SHOW_CURSOR=''; CLEAR_LINE=''
+	set_symbols
+}
+
 if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]] && [[ "${TERM:-dumb}" != "dumb" ]]; then
 	IS_TTY=true
 	BOLD=$'\033[1m'; DIM=$'\033[2m'
@@ -34,18 +57,10 @@ if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]] && [[ "${TERM:-dumb}" != "dumb" ]]; th
 	RESET=$'\033[0m'
 	HIDE_CURSOR=$'\033[?25l'; SHOW_CURSOR=$'\033[?25h'
 	CLEAR_LINE=$'\033[2K'
+	set_symbols
 else
-	IS_TTY=false
-	BOLD=''; DIM=''; GREEN=''; CYAN=''; YELLOW=''
-	RED=''; BLUE=''; MAGENTA=''; RESET=''
-	HIDE_CURSOR=''; SHOW_CURSOR=''; CLEAR_LINE=''
+	use_plain_output
 fi
-
-CHECK="${GREEN}✓${RESET}"
-ARROW="${CYAN}❯${RESET}"
-WARN_SYM="${YELLOW}!${RESET}"
-CROSS="${RED}✗${RESET}"
-SKIP_SYM="${DIM}·${RESET}"
 
 TERM_WIDTH=80
 detect_width() {
@@ -196,6 +211,13 @@ trap cleanup_terminal EXIT
 #      measured (npm reaching out to the registry) the bar is replaced by a
 #      live elapsed-seconds counter, so a stalled step is obvious instead of
 #      being disguised as a smooth animation.
+#
+# Without a terminal (and always in --answers mode) each step prints exactly
+# one line when it finishes, for a calling process to parse:
+#
+#   [n/total] <label> ... done (<detail>, <elapsed>)
+#   [n/total] <label> ... skipped (<reason>)
+#   [n/total] <label> ... warning (<message>)
 
 TOTAL_STEPS=0
 STEP_NUM=0
@@ -235,8 +257,6 @@ step_start() {
 	if $IS_TTY; then
 		printf '%s' "$HIDE_CURSOR"
 		step_render 0 0 ""
-	else
-		printf '  [%2d/%2d] %s …\n' "$STEP_NUM" "$TOTAL_STEPS" "$STEP_LABEL"
 	fi
 	return 0
 }
@@ -270,7 +290,7 @@ step_ok() {
 			"$DIM" "${detail:+$detail · }$elapsed" "$RESET"
 		printf '%s' "$SHOW_CURSOR"
 	else
-		printf '  [%2d/%2d] done — %s (%s)\n' "$STEP_NUM" "$TOTAL_STEPS" "${detail:-ok}" "$elapsed"
+		printf '[%d/%d] %s ... done (%s)\n' "$STEP_NUM" "$TOTAL_STEPS" "$STEP_LABEL" "${detail:+$detail, }$elapsed"
 	fi
 	return 0
 }
@@ -282,7 +302,7 @@ step_skip() {
 			"$DIM" "$1" "$RESET"
 		printf '%s' "$SHOW_CURSOR"
 	else
-		printf '  [%2d/%2d] skipped — %s\n' "$STEP_NUM" "$TOTAL_STEPS" "$1"
+		printf '[%d/%d] %s ... skipped (%s)\n' "$STEP_NUM" "$TOTAL_STEPS" "$STEP_LABEL" "$1"
 	fi
 	return 0
 }
@@ -294,7 +314,7 @@ step_warn() {
 			"$YELLOW" "$1" "$RESET"
 		printf '%s' "$SHOW_CURSOR"
 	else
-		printf '  [%2d/%2d] warning — %s\n' "$STEP_NUM" "$TOTAL_STEPS" "$1"
+		printf '[%d/%d] %s ... warning (%s)\n' "$STEP_NUM" "$TOTAL_STEPS" "$STEP_LABEL" "$1"
 	fi
 	return 0
 }
@@ -510,6 +530,128 @@ normalize_hex() {
 }
 
 # ══════════════════════════════════════════════════════════════════════════
+#  Defaults and cross-field checks — shared by the prompts and --answers
+# ══════════════════════════════════════════════════════════════════════════
+#
+# Both entry points resolve defaults and run checks through these functions,
+# so an answers file with a key left out ends up exactly where pressing Enter
+# at that prompt would.
+
+HINT_NONEMPTY="Cannot be empty."
+HINT_SLUG="Lowercase letters, numbers and hyphens only, e.g. acme-clinic."
+HINT_URI_OPT="Leave blank, or enter a full URL starting with http:// or https://."
+HINT_URL="Include the scheme, e.g. http://acme-clinic.local"
+HINT_PORT="A number between 1024 and 65535."
+HINT_HEX="A hex color like #1a3a5c or 1a3a5c (3 or 6 digits), or blank to skip."
+HINT_PX="A pixel value between 320 and 3840."
+
+def_project_name() { printf '%s' "My Client Site"; }
+def_theme_name()   { printf '%s' "$PROJECT_NAME"; }
+def_theme_slug()   { slugify "$PROJECT_NAME"; }
+def_text_domain()  { printf '%s' "$THEME_SLUG"; }
+def_func_prefix()  { printf '%s_' "$(prefixify "$PROJECT_NAME")"; }
+def_description()  { printf '%s' "A custom WordPress block theme."; }
+def_local_url()    { printf 'http://%s.local' "$THEME_SLUG"; }
+def_port()         { printf '3000'; }
+def_plugin_slug()  { printf '%s-plugin' "$THEME_SLUG"; }
+def_content_width(){ printf '1170'; }
+def_wide_width()   { printf '1440'; }
+
+# Normalize to a valid PHP identifier prefix ending in exactly one underscore.
+normalize_prefix() {
+	local p
+	p=$(printf '%s' "$1" | sed -E 's/[^a-zA-Z0-9_]/_/g; s/_+/_/g; s/^_+|_+$//g')
+	if [[ -z "$p" ]]; then p="theme"; fi
+	if [[ "$p" =~ ^[0-9] ]]; then p="t${p}"; fi
+	printf '%s_' "$p"
+}
+
+# Print a reason and return 1 when a valid-looking slug still cannot be used.
+theme_slug_problem() {
+	if [[ -d "themes/${1}" && "$1" != "starter" ]]; then
+		printf 'themes/%s/ already exists. Pick another slug or remove that directory.' "$1"
+		return 1
+	fi
+	case "$1" in
+		twentytwenty*|index|assets|node_modules|plugins|themes)
+			printf "'%s' collides with a reserved or default WordPress name." "$1"
+			return 1
+			;;
+	esac
+	return 0
+}
+
+plugin_slug_problem() {
+	if [[ -d "plugins/${1}" ]]; then
+		printf 'plugins/%s/ already exists. Pick another slug.' "$1"
+		return 1
+	fi
+	return 0
+}
+
+widths_problem() {
+	if (( $2 < $1 )); then
+		printf 'Wide width (%spx) is narrower than content width (%spx), which is backwards.' "$2" "$1"
+		return 1
+	fi
+	return 0
+}
+
+# Best-effort in-use check. Not fatal — the port may free up before you run
+# `npm run dev` — but better flagged now than at first launch. ss/lsof cover
+# Linux, WSL and macOS; Git Bash on Windows only has Windows' netstat.
+port_in_use() {
+	local port=$1
+	if command -v ss >/dev/null 2>&1; then
+		ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}\$"
+	elif command -v lsof >/dev/null 2>&1; then
+		lsof -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
+	elif command -v netstat >/dev/null 2>&1; then
+		netstat -an 2>/dev/null | grep -E 'LISTEN' | grep -qE "[:.]${port}[[:space:]]"
+	else
+		return 1
+	fi
+}
+
+# The stored DATA_STRATEGY is the full option label; CLAUDE.md generation and
+# the review screen key off its first word.
+DATA_STRATEGY_OPTIONS=(
+	"Bindings first — core blocks + Block Bindings, custom blocks only when needed"
+	"ACF blocks first — reach for a custom ACF block by default"
+	"Decide per component — document both, no default"
+)
+
+# Accepts the short tokens (bindings, acf, per-component), the option number
+# as shown at the prompt, or the full label. Prints the label.
+parse_data_strategy() {
+	local v
+	v=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+	case "$v" in
+		bindings|1)                 printf '%s' "${DATA_STRATEGY_OPTIONS[0]}" ;;
+		acf|2)                      printf '%s' "${DATA_STRATEGY_OPTIONS[1]}" ;;
+		per-component|decide|3)     printf '%s' "${DATA_STRATEGY_OPTIONS[2]}" ;;
+		*)
+			local o
+			for o in "${DATA_STRATEGY_OPTIONS[@]}"; do
+				if [[ "$1" == "$o" ]]; then printf '%s' "$o"; return 0; fi
+			done
+			return 1
+			;;
+	esac
+	return 0
+}
+
+# y/yes/true/1 and n/no/false/0, any case. Prints true or false.
+parse_bool() {
+	case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+		y|yes|true|1)  printf 'true' ;;
+		n|no|false|0)  printf 'false' ;;
+		*)             return 1 ;;
+	esac
+	return 0
+}
+
+# ══════════════════════════════════════════════════════════════════════════
 #  --help
 # ══════════════════════════════════════════════════════════════════════════
 
@@ -519,14 +661,36 @@ show_help() {
   WordPress Block Theme — Project Setup
 
   USAGE
-    ./setup.sh                Interactive setup
-    ./setup.sh --dry-run      Report what would change; write nothing
-    ./setup.sh --help         This message
+    ./setup.sh                    Interactive setup
+    ./setup.sh --answers <file>   Non-interactive; answers from a file
+    ./setup.sh --dry-run          Report what would change; write nothing
+    ./setup.sh --help             This message
 
   NAVIGATION
     Type "b" (or "back") at any prompt to return to the previous question.
     Ctrl-C aborts. Nothing is written to disk until you confirm at the
     review screen, so backing out early is always safe.
+
+  ANSWERS FILE
+    One KEY=value per line. Blank lines and lines starting with # are
+    ignored; a # later in a line is part of the value (hex colors). Values
+    may be wrapped in single or double quotes. A missing or empty key gets
+    the same default the prompt would offer.
+
+      PROJECT_NAME  THEME_NAME  THEME_SLUG  TEXT_DOMAIN  FUNC_PREFIX
+      THEME_DESCRIPTION  AUTHOR_NAME  AUTHOR_URI  LOCAL_URL
+      BROWSERSYNC_PORT  USE_ACF  CREATE_PLUGIN  PLUGIN_SLUG
+      DATA_STRATEGY  SCAFFOLD_BINDINGS  SCAFFOLD_ABILITY
+      PRIMARY_COLOR  SECONDARY_COLOR  TERTIARY_COLOR  DERIVE_SHADES
+      CONTENT_WIDTH  WIDE_WIDTH  INSTALL_DEPS  INIT_GIT  REMOVE_SCRIPT
+
+    Yes/no keys take y/yes/true/1 or n/no/false/0. DATA_STRATEGY takes
+    bindings, acf or per-component. Every value is checked before anything
+    is written; if any is invalid, all problems are listed and the script
+    exits with status 2. There is no review screen, and progress is printed
+    as one plain line per step:
+      [n/total] <label> ... done (<detail>)
+    README.md has a complete example file.
 
   ENVIRONMENT
     SETUP_ALLOW_NONINTERACTIVE=1   Skip the interactive-terminal guard
@@ -567,6 +731,8 @@ show_help() {
     npm install fails with EACCES or EPERM
         Do not run setup.sh with sudo. Fix npm cache ownership instead:
           sudo chown -R "$(id -u):$(id -g)" ~/.npm
+        On native Windows, EPERM usually means an editor, antivirus or
+        Dropbox has a file under node_modules open. Close it and retry.
 
     npm install fails behind a corporate proxy
           npm config set proxy http://your-proxy:port
@@ -579,6 +745,27 @@ show_help() {
         No git identity configured:
           git config --global user.name  "Your Name"
           git config --global user.email "you@example.com"
+
+    Windows: "bash" from PowerShell starts WSL, not Git Bash
+        C:\Windows\System32\bash.exe is the WSL launcher. For native
+        Windows, open a Git Bash window, or from PowerShell run:
+          & "C:\Program Files\Git\bin\bash.exe" ./setup.sh
+
+    Windows: spawn ... dart.exe ENOENT, or git "Filename too long"
+        The site path is too deep: node_modules pushes files past the
+        260-character limit. Move the site somewhere shallower. (Preflight
+        warns when the path is over 185 characters.)
+
+    Windows: git "detected dubious ownership"
+        The drive does not record ownership (exFAT/FAT, network shares,
+        RAM disks). Use an NTFS drive, or trust the one folder:
+          git config --global --add safe.directory "$(pwd)"
+
+    Switching between WSL and Git Bash breaks the build
+        node_modules holds platform-specific binaries (sass-embedded,
+        esbuild). Installed under WSL they are Linux builds; under Git Bash,
+        Windows builds. Pick one environment, or delete node_modules and
+        run npm install again after switching.
 
     npm run dev starts but never reloads on save
         On WSL2 with the project on the Windows partition (/mnt/c/), file
@@ -595,17 +782,35 @@ HELPEOF
 # ══════════════════════════════════════════════════════════════════════════
 
 DRY_RUN=false
-for arg in "$@"; do
-	case "$arg" in
+ANSWERS_FILE=""
+while (( $# > 0 )); do
+	case "$1" in
 		--help|-h) show_help; exit 0 ;;
 		--dry-run) DRY_RUN=true ;;
+		--answers|--answers=*)
+			if [[ "$1" == --answers=* ]]; then
+				ANSWERS_FILE="${1#--answers=}"
+			elif (( $# >= 2 )); then
+				ANSWERS_FILE="$2"
+				shift
+			fi
+			if [[ -z "$ANSWERS_FILE" ]]; then
+				print_error "--answers needs a file path, e.g. ./setup.sh --answers project.answers"
+				exit 2
+			fi
+			;;
 		*)
-			print_error "Unknown option: $arg"
+			print_error "Unknown option: $1"
 			print_info "Run ./setup.sh --help for usage."
 			exit 2
 			;;
 	esac
+	shift
 done
+
+if [[ -n "$ANSWERS_FILE" ]]; then
+	use_plain_output
+fi
 
 # ══════════════════════════════════════════════════════════════════════════
 #  Preflight
@@ -647,14 +852,16 @@ preflight() {
 	fi
 
 	# ── Interactive stdin ─────────────────────────────────────────────
-	if [[ ! -t 0 ]] && [[ -z "${SETUP_ALLOW_NONINTERACTIVE:-}" ]]; then
+	# Not needed with --answers: nothing is read from stdin.
+	if [[ -z "$ANSWERS_FILE" ]] && [[ ! -t 0 ]] && [[ -z "${SETUP_ALLOW_NONINTERACTIVE:-}" ]]; then
 		preflight_fail \
 			"setup.sh needs an interactive terminal, but stdin is not a TTY." \
 			"This happens when the script is piped, redirected, or launched by a" \
 			"task runner — the prompts would block forever waiting for input." \
 			"Run it directly in a terminal:" \
 			"  cd wp-content && ./setup.sh" \
-			"To bypass this guard for scripted runs: SETUP_ALLOW_NONINTERACTIVE=1"
+			"For scripted runs, supply the answers in a file instead:" \
+			"  ./setup.sh --answers project.answers   (see ./setup.sh --help)"
 	fi
 
 	# ── Correct working directory ─────────────────────────────────────
@@ -677,6 +884,14 @@ preflight() {
 	fi
 
 	# ── Writable working directory ────────────────────────────────────
+	# ── Answers file readable ─────────────────────────────────────────
+	if [[ -n "$ANSWERS_FILE" ]] && [[ ! -f "$ANSWERS_FILE" || ! -r "$ANSWERS_FILE" ]]; then
+		trap - ERR
+		print_error "Answers file not found or not readable: ${ANSWERS_FILE}"
+		print_info "  Paths are relative to $(pwd)"
+		exit 2
+	fi
+
 	local probe=".setup-write-probe.$$"
 	if ! touch "$probe" 2>/dev/null; then
 		preflight_fail \
@@ -699,12 +914,36 @@ preflight() {
 			"  sudo apt-get install -y coreutils findutils sed grep gawk"
 	fi
 
+	# ── Windows FIND.EXE / sort.exe shadowing the Unix tools ─────────
+	# Happens when bash is launched from cmd or PowerShell with a PATH that
+	# puts C:\Windows\System32 ahead of Git's /usr/bin.
+	if ! find . -maxdepth 0 >/dev/null 2>&1; then
+		preflight_fail \
+			"'find' on PATH is not the Unix find (probably C:\\Windows\\System32\\find.exe)." \
+			"Run setup.sh from a Git Bash window rather than from cmd or PowerShell," \
+			"or put Git's usr/bin ahead of System32 on PATH."
+	fi
+
 	detect_sed
 
 	# ── CRLF contamination ────────────────────────────────────────────
 	if grep -rlq $'\r' --include='*.sh' --include='*.mjs' --include='*.json' . 2>/dev/null; then
 		PREFLIGHT_WARNINGS+=("Some files have Windows (CRLF) line endings. If the build misbehaves: find . -name '*.mjs' -o -name '*.sh' | xargs sed -i 's/\\r\$//'")
 	fi
+
+	# ── Windows path length ───────────────────────────────────────────
+	# node_modules adds ~70 characters (sass-embedded's dart.exe is the
+	# deepest). Past Windows' 260-character limit Node cannot spawn it, and
+	# the SCSS build fails with a misleading "spawn … ENOENT".
+	case "$(uname -s 2>/dev/null)" in
+		MINGW*|MSYS*|CYGWIN*)
+			local winpath
+			winpath=$(pwd -W 2>/dev/null || pwd)
+			if (( ${#winpath} > 185 )); then
+				PREFLIGHT_WARNINGS+=("This path is ${#winpath} characters. Deep files pass Windows' 260-character limit: the SCSS build fails with 'spawn … dart.exe ENOENT' and git with 'Filename too long'. Move the site somewhere shallower.")
+			fi
+			;;
+	esac
 
 	# ── Pre-existing node_modules ─────────────────────────────────────
 	if [[ -d "node_modules" ]]; then
@@ -757,7 +996,9 @@ fi
 if $DRY_RUN; then
 	print_warn "DRY RUN — nothing will be written."
 fi
-print_info "Type 'b' at any prompt to go back to the previous question."
+if [[ -z "$ANSWERS_FILE" ]]; then
+	print_info "Type 'b' at any prompt to go back to the previous question."
+fi
 
 # ══════════════════════════════════════════════════════════════════════════
 #  Configuration — step machine with go-back
@@ -780,7 +1021,7 @@ _LAST_PROJECT_NAME=""
 
 step_project_name() {
 	print_section "Project Identity"
-	prompt "Project name" "${PROJECT_NAME:-My Client Site}" PROJECT_NAME \
+	prompt "Project name" "${PROJECT_NAME:-$(def_project_name)}" PROJECT_NAME \
 		v_nonempty "Project name cannot be empty." || return $?
 
 	# If the project name changed, clear the values derived from it so their
@@ -795,82 +1036,58 @@ step_project_name() {
 
 step_theme_name() {
 	print_info "Shown in WordPress under Appearance → Themes. Spaces and capitals are kept exactly as typed."
-	prompt "Theme display name" "${THEME_NAME:-$PROJECT_NAME}" THEME_NAME \
+	prompt "Theme display name" "${THEME_NAME:-$(def_theme_name)}" THEME_NAME \
 		v_nonempty "Theme name cannot be empty." || return $?
 	return 0
 }
 
 step_theme_slug() {
-	local default="${THEME_SLUG:-$(slugify "$PROJECT_NAME")}"
-	prompt "Theme slug (directory name)" "$default" THEME_SLUG v_slug \
-		"Lowercase letters, numbers and hyphens only, e.g. acme-clinic." || return $?
+	local default="${THEME_SLUG:-$(def_theme_slug)}" problem
+	prompt "Theme slug (directory name)" "$default" THEME_SLUG v_slug "$HINT_SLUG" || return $?
 
-	if [[ -d "themes/${THEME_SLUG}" && "$THEME_SLUG" != "starter" ]]; then
-		print_warn "themes/${THEME_SLUG}/ already exists. Pick another slug or remove that directory."
+	if ! problem=$(theme_slug_problem "$THEME_SLUG"); then
+		print_warn "$problem"
 		THEME_SLUG=""
 		return $BACK_RC
 	fi
-	case "$THEME_SLUG" in
-		twentytwenty*|index|assets|node_modules|plugins|themes)
-			print_warn "'${THEME_SLUG}' collides with a reserved or default WordPress name."
-			THEME_SLUG=""
-			return $BACK_RC
-			;;
-	esac
 	return 0
 }
 
 step_text_domain() {
-	prompt "Text domain" "${TEXT_DOMAIN:-$THEME_SLUG}" TEXT_DOMAIN v_slug \
-		"Lowercase letters, numbers and hyphens only." || return $?
+	prompt "Text domain" "${TEXT_DOMAIN:-$(def_text_domain)}" TEXT_DOMAIN v_slug "$HINT_SLUG" || return $?
 	return 0
 }
 
 step_func_prefix() {
-	local default="${FUNC_PREFIX:-$(prefixify "$PROJECT_NAME")_}"
-	prompt "PHP function prefix" "$default" FUNC_PREFIX || return $?
-	# Normalize to a valid PHP identifier prefix ending in one underscore.
-	FUNC_PREFIX=$(printf '%s' "$FUNC_PREFIX" | sed -E 's/[^a-zA-Z0-9_]/_/g; s/_+/_/g; s/^_+|_+$//g')
-	if [[ -z "$FUNC_PREFIX" ]]; then FUNC_PREFIX="theme"; fi
-	if [[ "$FUNC_PREFIX" =~ ^[0-9] ]]; then FUNC_PREFIX="t${FUNC_PREFIX}"; fi
-	FUNC_PREFIX="${FUNC_PREFIX}_"
+	prompt "PHP function prefix" "${FUNC_PREFIX:-$(def_func_prefix)}" FUNC_PREFIX || return $?
+	FUNC_PREFIX=$(normalize_prefix "$FUNC_PREFIX")
 	return 0
 }
 
 step_description() {
-	prompt "Theme description" "${THEME_DESCRIPTION:-A custom WordPress block theme.}" THEME_DESCRIPTION || return $?
+	prompt "Theme description" "${THEME_DESCRIPTION:-$(def_description)}" THEME_DESCRIPTION || return $?
 	return 0
 }
 
 step_author() {
 	print_section "Author"
 	prompt "Author name" "${AUTHOR_NAME:-}" AUTHOR_NAME || return $?
-	prompt "Author URI" "${AUTHOR_URI:-}" AUTHOR_URI v_uri_opt \
-		"Leave blank, or enter a full URL starting with http:// or https://." || return $?
+	prompt "Author URI" "${AUTHOR_URI:-}" AUTHOR_URI v_uri_opt "$HINT_URI_OPT" || return $?
 	return 0
 }
 
 step_local_url() {
 	print_section "Local Development"
-	prompt "Local site URL (Local by Flywheel)" "${LOCAL_URL:-http://${THEME_SLUG}.local}" LOCAL_URL v_url \
-		"Include the scheme, e.g. http://acme-clinic.local" || return $?
+	prompt "Local site URL (Local by Flywheel)" "${LOCAL_URL:-$(def_local_url)}" LOCAL_URL v_url \
+		"$HINT_URL" || return $?
 	return 0
 }
 
 step_port() {
-	prompt "BrowserSync port" "${BROWSERSYNC_PORT:-3000}" BROWSERSYNC_PORT v_port \
-		"A number between 1024 and 65535." || return $?
-
-	# Best-effort in-use check. Not fatal — the port may free up before you
-	# run `npm run dev` — but better flagged now than at first launch.
-	if command -v ss >/dev/null 2>&1; then
-		if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${BROWSERSYNC_PORT}\$"; then
-			print_warn "Port ${BROWSERSYNC_PORT} looks like it is already in use."
-		fi
-	elif command -v lsof >/dev/null 2>&1; then
-		if lsof -iTCP:"${BROWSERSYNC_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
-			print_warn "Port ${BROWSERSYNC_PORT} looks like it is already in use."
-		fi
+	prompt "BrowserSync port" "${BROWSERSYNC_PORT:-$(def_port)}" BROWSERSYNC_PORT v_port \
+		"$HINT_PORT" || return $?
+	if port_in_use "$BROWSERSYNC_PORT"; then
+		print_warn "Port ${BROWSERSYNC_PORT} looks like it is already in use."
 	fi
 	return 0
 }
@@ -884,10 +1101,10 @@ step_acf() {
 step_plugin() {
 	prompt_yn "Create a companion plugin?" "$(yn_default "$CREATE_PLUGIN" n)" CREATE_PLUGIN || return $?
 	if [[ "$CREATE_PLUGIN" == "true" ]]; then
-		prompt "Plugin slug" "${PLUGIN_SLUG:-${THEME_SLUG}-plugin}" PLUGIN_SLUG v_slug \
-			"Lowercase letters, numbers and hyphens only." || return $?
-		if [[ -d "plugins/${PLUGIN_SLUG}" ]]; then
-			print_warn "plugins/${PLUGIN_SLUG}/ already exists. Pick another slug."
+		local problem
+		prompt "Plugin slug" "${PLUGIN_SLUG:-$(def_plugin_slug)}" PLUGIN_SLUG v_slug "$HINT_SLUG" || return $?
+		if ! problem=$(plugin_slug_problem "$PLUGIN_SLUG"); then
+			print_warn "$problem"
 			PLUGIN_SLUG=""
 			return $BACK_RC
 		fi
@@ -906,9 +1123,7 @@ step_data_strategy() {
 	print_info "scaffolding only — nothing is locked in."
 	echo ""
 	prompt_select "How should dynamic content be built by default?" DATA_STRATEGY \
-		"Bindings first — core blocks + Block Bindings, custom blocks only when needed" \
-		"ACF blocks first — reach for a custom ACF block by default" \
-		"Decide per component — document both, no default" || return $?
+		"${DATA_STRATEGY_OPTIONS[@]}" || return $?
 	return 0
 }
 
@@ -944,12 +1159,9 @@ step_colors() {
 	print_info "primary / secondary / tertiary slugs in theme.json and are available"
 	print_info "as var(--wp--preset--color--primary) etc. Change them later any time."
 	echo ""
-	prompt "Primary color (hex)"   "${PRIMARY_COLOR:-}"   PRIMARY_COLOR   v_hex_opt \
-		"A hex color like #1a3a5c or 1a3a5c (3 or 6 digits), or blank to skip." || return $?
-	prompt "Secondary color (hex)" "${SECONDARY_COLOR:-}" SECONDARY_COLOR v_hex_opt \
-		"A hex color like #c0392b or c0392b (3 or 6 digits), or blank to skip." || return $?
-	prompt "Tertiary color (hex)"  "${TERTIARY_COLOR:-}"  TERTIARY_COLOR  v_hex_opt \
-		"A hex color like #e67e22 or e67e22 (3 or 6 digits), or blank to skip." || return $?
+	prompt "Primary color (hex)"   "${PRIMARY_COLOR:-}"   PRIMARY_COLOR   v_hex_opt "$HINT_HEX" || return $?
+	prompt "Secondary color (hex)" "${SECONDARY_COLOR:-}" SECONDARY_COLOR v_hex_opt "$HINT_HEX" || return $?
+	prompt "Tertiary color (hex)"  "${TERTIARY_COLOR:-}"  TERTIARY_COLOR  v_hex_opt "$HINT_HEX" || return $?
 
 	PRIMARY_COLOR=$(normalize_hex "$PRIMARY_COLOR")
 	SECONDARY_COLOR=$(normalize_hex "$SECONDARY_COLOR")
@@ -970,12 +1182,11 @@ step_colors() {
 
 step_widths() {
 	print_section "Layout"
-	prompt "Content max-width (px)" "${CONTENT_WIDTH:-1170}" CONTENT_WIDTH v_px \
-		"A pixel value between 320 and 3840." || return $?
-	prompt "Wide max-width (px)" "${WIDE_WIDTH:-1440}" WIDE_WIDTH v_px \
-		"A pixel value between 320 and 3840." || return $?
-	if (( WIDE_WIDTH < CONTENT_WIDTH )); then
-		print_warn "Wide width (${WIDE_WIDTH}px) is narrower than content width (${CONTENT_WIDTH}px), which is backwards."
+	local problem
+	prompt "Content max-width (px)" "${CONTENT_WIDTH:-$(def_content_width)}" CONTENT_WIDTH v_px "$HINT_PX" || return $?
+	prompt "Wide max-width (px)" "${WIDE_WIDTH:-$(def_wide_width)}" WIDE_WIDTH v_px "$HINT_PX" || return $?
+	if ! problem=$(widths_problem "$CONTENT_WIDTH" "$WIDE_WIDTH"); then
+		print_warn "$problem"
 		return $BACK_RC
 	fi
 	return 0
@@ -1076,7 +1287,238 @@ run_config() {
 	return 0
 }
 
-run_config
+# ══════════════════════════════════════════════════════════════════════════
+#  --answers: the same configuration, read from a file
+# ══════════════════════════════════════════════════════════════════════════
+#
+# Resolves every variable in the order the prompts ask for them, so derived
+# defaults (slug from project name, text domain from slug, ...) chain the
+# same way. Every problem is collected before exiting, so one run reports
+# all of them, and nothing is written unless the whole file is valid.
+
+ANSWER_KEYS=(
+	PROJECT_NAME THEME_NAME THEME_SLUG TEXT_DOMAIN FUNC_PREFIX
+	THEME_DESCRIPTION AUTHOR_NAME AUTHOR_URI LOCAL_URL BROWSERSYNC_PORT
+	USE_ACF CREATE_PLUGIN PLUGIN_SLUG DATA_STRATEGY
+	SCAFFOLD_BINDINGS SCAFFOLD_ABILITY
+	PRIMARY_COLOR SECONDARY_COLOR TERTIARY_COLOR DERIVE_SHADES
+	CONTENT_WIDTH WIDE_WIDTH INSTALL_DEPS INIT_GIT REMOVE_SCRIPT
+)
+declare -A ANSWERS=()
+ANSWER_ERRORS=()
+ANSWER_NOTES=()
+
+trim() {
+	local s="$1"
+	s="${s#"${s%%[![:space:]]*}"}"
+	s="${s%"${s##*[![:space:]]}"}"
+	printf '%s' "$s"
+}
+
+read_answers_file() {
+	local file="$1" line key val n=0 known k
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		n=$(( n + 1 ))
+		line="${line%$'\r'}"        # files saved on Windows
+		line=$(trim "$line")
+		if [[ -z "$line" || "$line" == \#* ]]; then continue; fi
+		if [[ "$line" != *=* ]]; then
+			ANSWER_ERRORS+=("line ${n}: expected KEY=value, got: ${line}")
+			continue
+		fi
+		key=$(trim "${line%%=*}")
+		val=$(trim "${line#*=}")
+		if (( ${#val} >= 2 )) && [[ ( "$val" == \"*\" ) || ( "$val" == \'*\' ) ]]; then
+			val="${val:1:${#val}-2}"
+		fi
+		known=false
+		for k in "${ANSWER_KEYS[@]}"; do
+			if [[ "$k" == "$key" ]]; then known=true; break; fi
+		done
+		if ! $known; then
+			ANSWER_ERRORS+=("line ${n}: unknown key '${key}'")
+		elif [[ -n "${ANSWERS[$key]+set}" ]]; then
+			ANSWER_ERRORS+=("line ${n}: ${key} is set more than once")
+		else
+			ANSWERS[$key]="$val"
+		fi
+	done < "$file"
+	return 0
+}
+
+# answer <KEY> <default> — the supplied value, or the default when the key is
+# missing or empty (pressing Enter at a prompt behaves the same way).
+answer() {
+	local v="${ANSWERS[$1]:-}"
+	if [[ -n "$v" ]]; then printf '%s' "$v"; else printf '%s' "$2"; fi
+}
+
+supplied() { [[ -n "${ANSWERS[$1]:-}" ]]; }
+
+# bad <KEY> <message> — record a problem, noting when the value was derived
+# rather than written in the file, since the fix is then in a different key.
+bad() {
+	local where="value '${!1}'"
+	if ! supplied "$1"; then where="derived default '${!1}'"; fi
+	ANSWER_ERRORS+=("${1}: ${2} (${where})")
+	return 0
+}
+
+check() {   # check <KEY> <validator> <hint>
+	if ! "$2" "${!1}"; then bad "$1" "$3"; fi
+	return 0
+}
+
+bool_answer() {   # bool_answer <KEY> <default true|false>
+	local raw parsed
+	raw=$(answer "$1" "$2")
+	if parsed=$(parse_bool "$raw"); then
+		printf -v "$1" '%s' "$parsed"
+	else
+		printf -v "$1" '%s' "$raw"
+		bad "$1" "Use y/yes/true/1 or n/no/false/0."
+		printf -v "$1" '%s' "$2"   # keep dependent checks meaningful
+	fi
+	return 0
+}
+
+load_answers() {
+	local problem parsed
+	read_answers_file "$ANSWERS_FILE"
+
+	PROJECT_NAME=$(answer PROJECT_NAME "$(def_project_name)")
+	check PROJECT_NAME v_nonempty "$HINT_NONEMPTY"
+	THEME_NAME=$(answer THEME_NAME "$(def_theme_name)")
+	check THEME_NAME v_nonempty "$HINT_NONEMPTY"
+
+	THEME_SLUG=$(answer THEME_SLUG "$(def_theme_slug)")
+	if ! v_slug "$THEME_SLUG"; then
+		bad THEME_SLUG "$HINT_SLUG"
+	elif ! problem=$(theme_slug_problem "$THEME_SLUG"); then
+		bad THEME_SLUG "$problem"
+	fi
+	TEXT_DOMAIN=$(answer TEXT_DOMAIN "$(def_text_domain)")
+	check TEXT_DOMAIN v_slug "$HINT_SLUG"
+	FUNC_PREFIX=$(normalize_prefix "$(answer FUNC_PREFIX "$(def_func_prefix)")")
+	THEME_DESCRIPTION=$(answer THEME_DESCRIPTION "$(def_description)")
+
+	AUTHOR_NAME=$(answer AUTHOR_NAME "")
+	AUTHOR_URI=$(answer AUTHOR_URI "")
+	check AUTHOR_URI v_uri_opt "$HINT_URI_OPT"
+
+	LOCAL_URL=$(answer LOCAL_URL "$(def_local_url)")
+	check LOCAL_URL v_url "$HINT_URL"
+	BROWSERSYNC_PORT=$(answer BROWSERSYNC_PORT "$(def_port)")
+	if ! v_port "$BROWSERSYNC_PORT"; then
+		bad BROWSERSYNC_PORT "$HINT_PORT"
+	elif port_in_use "$BROWSERSYNC_PORT"; then
+		ANSWER_NOTES+=("Port ${BROWSERSYNC_PORT} looks like it is already in use.")
+	fi
+
+	bool_answer USE_ACF true
+	bool_answer CREATE_PLUGIN false
+	if [[ "$CREATE_PLUGIN" == "true" ]]; then
+		PLUGIN_SLUG=$(answer PLUGIN_SLUG "$(def_plugin_slug)")
+		if ! v_slug "$PLUGIN_SLUG"; then
+			bad PLUGIN_SLUG "$HINT_SLUG"
+		elif ! problem=$(plugin_slug_problem "$PLUGIN_SLUG"); then
+			bad PLUGIN_SLUG "$problem"
+		fi
+	else
+		if supplied PLUGIN_SLUG; then ANSWER_NOTES+=("PLUGIN_SLUG ignored: CREATE_PLUGIN is off."); fi
+		PLUGIN_SLUG=""
+	fi
+
+	DATA_STRATEGY=$(answer DATA_STRATEGY "${DATA_STRATEGY_OPTIONS[0]}")
+	if parsed=$(parse_data_strategy "$DATA_STRATEGY"); then
+		DATA_STRATEGY="$parsed"
+	else
+		bad DATA_STRATEGY "Use bindings, acf or per-component."
+	fi
+
+	if [[ "$CREATE_PLUGIN" == "true" ]]; then
+		bool_answer SCAFFOLD_BINDINGS true
+		bool_answer SCAFFOLD_ABILITY false
+	else
+		if supplied SCAFFOLD_BINDINGS || supplied SCAFFOLD_ABILITY; then
+			ANSWER_NOTES+=("SCAFFOLD_* ignored: CREATE_PLUGIN is off.")
+		fi
+		SCAFFOLD_BINDINGS="false"; SCAFFOLD_ABILITY="false"
+	fi
+
+	bool_answer INIT_GIT true
+	if [[ "$INIT_GIT" == "true" ]] && ! $HAVE_GIT; then
+		ANSWER_NOTES+=("git is not installed, so INIT_GIT will be skipped.")
+	fi
+
+	local c
+	for c in PRIMARY_COLOR SECONDARY_COLOR TERTIARY_COLOR; do
+		printf -v "$c" '%s' "$(answer "$c" "")"
+		if v_hex_opt "${!c}"; then
+			printf -v "$c" '%s' "$(normalize_hex "${!c}")"
+		else
+			bad "$c" "$HINT_HEX"
+		fi
+	done
+	if [[ -n "$PRIMARY_COLOR" || -n "$SECONDARY_COLOR" ]]; then
+		bool_answer DERIVE_SHADES true
+	else
+		DERIVE_SHADES="false"
+	fi
+
+	CONTENT_WIDTH=$(answer CONTENT_WIDTH "$(def_content_width)")
+	check CONTENT_WIDTH v_px "$HINT_PX"
+	WIDE_WIDTH=$(answer WIDE_WIDTH "$(def_wide_width)")
+	if ! v_px "$WIDE_WIDTH"; then
+		bad WIDE_WIDTH "$HINT_PX"
+	elif v_px "$CONTENT_WIDTH" && ! problem=$(widths_problem "$CONTENT_WIDTH" "$WIDE_WIDTH"); then
+		bad WIDE_WIDTH "$problem"
+	fi
+
+	if $HAVE_NPM; then
+		bool_answer INSTALL_DEPS true
+	else
+		bool_answer INSTALL_DEPS false
+		if [[ "$INSTALL_DEPS" == "true" ]]; then
+			ANSWER_NOTES+=("npm not found — INSTALL_DEPS will be skipped.")
+		fi
+		INSTALL_DEPS="false"
+	fi
+	bool_answer REMOVE_SCRIPT true
+
+	if (( ${#ANSWER_ERRORS[@]} > 0 )); then
+		trap - ERR
+		echo "" >&2
+		print_error "${ANSWERS_FILE}: ${#ANSWER_ERRORS[@]} invalid answer(s). Nothing was written."
+		local e
+		for e in "${ANSWER_ERRORS[@]}"; do printf '    %s\n' "$e" >&2; done
+		echo "" >&2
+		print_info "Keys and formats: ./setup.sh --help (ANSWERS FILE)" >&2
+		exit 2
+	fi
+
+	print_section "Answers from $(basename "$ANSWERS_FILE")"
+	local k
+	for k in "${ANSWER_KEYS[@]}"; do
+		if [[ "$k" == "DATA_STRATEGY" ]]; then
+			printf '  %-18s %s\n' "$k" "${DATA_STRATEGY%% —*}"
+		else
+			printf '  %-18s %s\n' "$k" "${!k}"
+		fi
+	done
+	if (( ${#ANSWER_NOTES[@]} > 0 )); then
+		echo ""
+		local note
+		for note in "${ANSWER_NOTES[@]}"; do print_warn "$note"; done
+	fi
+	return 0
+}
+
+if [[ -n "$ANSWERS_FILE" ]]; then
+	load_answers
+else
+	run_config
+fi
 
 # ══════════════════════════════════════════════════════════════════════════
 #  Derived values
@@ -1472,7 +1914,8 @@ if ! $DRY_RUN; then
 	if [[ "$CONTENT_WIDTH" != "1170" ]]; then
 		do_sed -e "s${SD}\"contentSize\": \"1170px\"${SD}\"contentSize\": \"${CONTENT_WIDTH}px\"${SD}" "$THEME_JSON" 2>/dev/null || true
 		if [[ -f "$VARS_SCSS" ]]; then
-			do_sed -e "s${SD}\$content-width: 1170px${SD}\$content-width: ${CONTENT_WIDTH}px${SD}" "$VARS_SCSS" 2>/dev/null || true
+			# [[:space:]]* because the declarations are column-aligned.
+			do_sed -e "s${SD}\(\$content-width:[[:space:]]*\)1170px${SD}\1${CONTENT_WIDTH}px${SD}" "$VARS_SCSS" 2>/dev/null || true
 		fi
 		TOKEN_NOTES+=("content ${CONTENT_WIDTH}px")
 	fi
@@ -1482,7 +1925,7 @@ if ! $DRY_RUN; then
 	if [[ "$WIDE_WIDTH" != "1440" ]]; then
 		do_sed -e "s${SD}\"wideSize\": \"1440px\"${SD}\"wideSize\": \"${WIDE_WIDTH}px\"${SD}" "$THEME_JSON" 2>/dev/null || true
 		if [[ -f "$VARS_SCSS" ]]; then
-			do_sed -e "s${SD}\$wide-width: 1440px${SD}\$wide-width: ${WIDE_WIDTH}px${SD}" "$VARS_SCSS" 2>/dev/null || true
+			do_sed -e "s${SD}\(\$wide-width:[[:space:]]*\)1440px${SD}\1${WIDE_WIDTH}px${SD}" "$VARS_SCSS" 2>/dev/null || true
 		fi
 		TOKEN_NOTES+=("wide ${WIDE_WIDTH}px")
 	fi
@@ -2193,11 +2636,18 @@ Nothing else depends on this step — you can run git init yourself."
 		step_skip "repository already exists"
 	else
 		GIT_OK=true
+		GIT_LOG=$(mk_log git)
 		step_progress 0 3 "init"
-		git init -q -b main >/dev/null 2>&1 || git init -q >/dev/null 2>&1 || GIT_OK=false
+		git init -q -b main >/dev/null 2>>"$GIT_LOG" || git init -q >/dev/null 2>>"$GIT_LOG" || GIT_OK=false
 		if $GIT_OK; then
 			step_progress 1 3 "add"
-			git add -A >/dev/null 2>&1 || GIT_OK=false
+			# setup.sh deletes itself at the end; committing it first would
+			# leave every new project with an uncommitted deletion.
+			if [[ "$REMOVE_SCRIPT" == "true" ]]; then
+				git add -A -- . ':(exclude)setup.sh' >/dev/null 2>>"$GIT_LOG" || GIT_OK=false
+			else
+				git add -A >/dev/null 2>>"$GIT_LOG" || GIT_OK=false
+			fi
 		fi
 		if $GIT_OK; then
 			step_progress 2 3 "commit"
@@ -2205,16 +2655,28 @@ Nothing else depends on this step — you can run git init yourself."
 
 Configured for: ${THEME_NAME}
 Theme slug: ${THEME_SLUG}
-Text domain: ${TEXT_DOMAIN}" >/dev/null 2>&1 || GIT_OK=false
+Text domain: ${TEXT_DOMAIN}" >/dev/null 2>>"$GIT_LOG" || GIT_OK=false
 		fi
 		step_progress 3 3 ""
 		if $GIT_OK; then
 			step_ok "branch main, 1 commit"
 		else
 			step_warn "repository created but the commit failed"
-			print_info "  Usually a missing git identity:"
-			print_info "    git config --global user.name  \"Your Name\""
-			print_info "    git config --global user.email \"you@example.com\""
+			# Name the actual cause: the two common ones need different fixes,
+			# and guessing wrong sends people to change the wrong setting.
+			if grep -q 'dubious ownership' "$GIT_LOG" 2>/dev/null; then
+				print_info "  git does not trust this folder: the drive does not record file"
+				print_info "  ownership (exFAT/FAT, some network shares and RAM disks). Either"
+				print_info "  move the site to an NTFS drive, or trust this one folder:"
+				print_info "    git config --global --add safe.directory \"$(pwd)\""
+			elif grep -qiE 'tell me who you are|user\.email|user\.name' "$GIT_LOG" 2>/dev/null; then
+				print_info "  No git identity configured:"
+				print_info "    git config --global user.name  \"Your Name\""
+				print_info "    git config --global user.email \"you@example.com\""
+			else
+				print_info "  git said:"
+				tail -6 "$GIT_LOG" 2>/dev/null | while IFS= read -r l; do print_info "    $l"; done
+			fi
 			print_info "  Then: git add -A && git commit -m \"Initial commit\""
 		fi
 	fi

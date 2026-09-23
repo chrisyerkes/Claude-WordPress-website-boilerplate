@@ -12,7 +12,7 @@ Run the interactive setup once, from the `wp-content/` directory:
 ./setup.sh
 ```
 
-It names the project, sets the text domain and prefix, writes brand colors and layout widths into `theme.json`, optionally scaffolds a companion plugin, installs dependencies and initializes git. Type `b` at any prompt to go back. `./setup.sh --dry-run` shows what would change; `./setup.sh --help` includes a troubleshooting guide.
+It names the project, sets the text domain and prefix, writes brand colors and layout widths into `theme.json`, optionally scaffolds a companion plugin, installs dependencies and initializes git. Type `b` at any prompt to go back. `./setup.sh --answers <file>` runs it non-interactively from a `KEY=value` file (format in README). `./setup.sh --dry-run` shows what would change; `./setup.sh --help` includes a troubleshooting guide. It runs under WSL, macOS/Linux, or Git Bash on native Windows.
 
 If `setup.sh` is gone, the project is already configured.
 
@@ -122,7 +122,7 @@ Breakpoints: 375 / 768 / 1024 / 1440 / 1920. Test at 320 too.
 
 ## Line Endings
 
-`.gitattributes` forces LF everywhere. This project is edited on Windows through WSL and synced through Dropbox, both of which introduce CRLF — a CRLF shebang makes `setup.sh` fail with `bad interpreter: /usr/bin/env bash^M`, and CRLF in `.mjs` breaks the build in ways that are hard to trace. Fix with `sed -i 's/\r$//' <file>`.
+`.gitattributes` forces LF everywhere. This project is edited on Windows (through WSL or Git Bash) and synced through Dropbox, all of which can introduce CRLF — a CRLF shebang makes `setup.sh` fail with `bad interpreter: /usr/bin/env bash^M`, and CRLF in `.mjs` breaks the build in ways that are hard to trace. Fix with `sed -i 's/\r$//' <file>`.
 
 ## Files to Always Consult
 

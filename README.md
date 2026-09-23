@@ -31,11 +31,31 @@ your-local-site/
 
 ### 3. Run the setup script
 
-Open a WSL terminal, navigate to the `wp-content/` directory, and run:
+The script needs bash 4+, and Node 20+ and git for the install and first-commit steps. On Windows, run it either inside WSL or natively under Git Bash. Both are tested:
+
+| | WSL (Ubuntu) | Native Windows (Git Bash) |
+|---|---|---|
+| Terminal | WSL / Ubuntu | **Git Bash**, installed with [Git for Windows](https://git-scm.com/download/win) |
+| Node and git | Installed *inside* WSL (e.g. `nvm install 20`) | Windows installers ([nodejs.org](https://nodejs.org), Git for Windows) |
+| Path to `wp-content/` | `/mnt/c/Users/you/Local Sites/acme/app/public/wp-content` | `/c/Users/you/Local Sites/acme/app/public/wp-content` |
+
+Open that terminal, `cd` to the `wp-content/` directory (quote the path, since Local puts a space in `Local Sites`), and run:
 
 ```bash
+cd "/c/Users/you/Local Sites/acme/app/public/wp-content"    # Git Bash
+cd "/mnt/c/Users/you/Local Sites/acme/app/public/wp-content" # WSL
 ./setup.sh
 ```
+
+macOS and Linux work the same way as WSL. macOS ships bash 3.2, so `brew install bash` first.
+
+**Native Windows notes**
+
+- **Typing `bash` in PowerShell or cmd starts WSL, not Git Bash.** `C:\Windows\System32\bash.exe` is the WSL launcher. Use a Git Bash window, or from PowerShell run `& "C:\Program Files\Git\bin\bash.exe" ./setup.sh`.
+- **Pick one environment per project.** `node_modules/` holds platform-specific binaries (sass-embedded, esbuild): an install under WSL gets Linux builds, one under Git Bash gets Windows builds. If you switch, delete `node_modules/` and run `npm install` again.
+- **Keep the site path short.** Windows has a 260-character path limit, and `node_modules/` adds about 70 characters. Past the limit the SCSS build fails with `spawn … dart.exe ENOENT` and git fails with `Filename too long`. Setup warns when the path is over 185 characters. `C:\Users\you\Local Sites\…` is well inside the limit.
+- **Use an NTFS drive.** On exFAT/FAT drives, network shares and RAM disks, git refuses the new repository ("detected dubious ownership"). Setup detects this and prints the `safe.directory` command that fixes it.
+- Git for Windows' default `core.autocrlf=true` is fine: `.gitattributes` forces LF for everything the build and scripts read.
 
 The script will walk you through:
 
@@ -57,17 +77,115 @@ Every step reports real progress: a step counter sized to the answers you gave, 
 Other flags:
 
 ```bash
-./setup.sh --dry-run    # Report what would change without writing anything
-./setup.sh --help       # Usage plus a troubleshooting guide
+./setup.sh --answers acme.answers  # Non-interactive: read every answer from a file (below)
+./setup.sh --dry-run               # Report what would change without writing anything
+./setup.sh --help                  # Usage plus a troubleshooting guide
 ```
 
-If something goes wrong, the script reports what it was doing, the failing command, and a specific fix — then tells you whether anything had already been written. Run `./setup.sh --help` for the full list of common failures (CRLF line endings from Dropbox, npm EACCES, missing git identity, port conflicts, Node too old).
+`--dry-run` combines with `--answers`, which makes it a quick way to check a file.
+
+If something goes wrong, the script reports what it was doing, the failing command, and a specific fix, then tells you whether anything had already been written. Run `./setup.sh --help` for the full list of common failures (CRLF line endings from Dropbox, npm EACCES, missing git identity, port conflicts, Node too old, and the Windows-specific ones above).
 
 It offers to delete itself when done, since it's a one-time setup.
 
+#### Non-interactive setup: `--answers`
+
+For scripted or repeated setups, put the answers in a file and pass it with `--answers`. There are no prompts, no terminal is required, and there is no review screen:
+
+```bash
+./setup.sh --answers ../acme.answers
+```
+
+The file has one `KEY=value` per line. Every key is optional: a missing or empty key gets the same default the prompt would offer, derived the same way (the slug comes from `PROJECT_NAME`, the text domain from the slug, and so on). A complete example, with every key:
+
+```ini
+# acme.answers
+# Keep this file outside wp-content/, or INIT_GIT will commit it.
+
+# ── Identity ──
+PROJECT_NAME=Acme Clinic
+# Display name, used verbatim in style.css. Default: PROJECT_NAME
+THEME_NAME=Acme Clinic
+# Default: PROJECT_NAME as a slug
+THEME_SLUG=acme-clinic
+# Default: THEME_SLUG
+TEXT_DOMAIN=acme-clinic
+# Default: PROJECT_NAME with underscores, plus a trailing _
+FUNC_PREFIX=acme_clinic_
+THEME_DESCRIPTION=A custom WordPress block theme.
+
+# ── Author ──
+AUTHOR_NAME=Mops Digital
+AUTHOR_URI=https://mopsdigital.com
+
+# ── Local development ──
+# Default: http://<THEME_SLUG>.local
+LOCAL_URL=http://acme-clinic.local
+BROWSERSYNC_PORT=3000
+
+# ── Features ──
+USE_ACF=yes
+CREATE_PLUGIN=yes
+# PLUGIN_SLUG and SCAFFOLD_* are ignored when CREATE_PLUGIN is no.
+# Default: <THEME_SLUG>-plugin
+PLUGIN_SLUG=acme-clinic-plugin
+# bindings | acf | per-component
+DATA_STRATEGY=bindings
+SCAFFOLD_BINDINGS=yes
+SCAFFOLD_ABILITY=no
+
+# ── Brand colors ── blank keeps the boilerplate color
+PRIMARY_COLOR=#1a3a5c
+SECONDARY_COLOR=#c0392b
+TERTIARY_COLOR=#e67e22
+# Regenerate primary-dark, primary-light and secondary-dark from the above
+DERIVE_SHADES=yes
+
+# ── Layout ──
+CONTENT_WIDTH=1170
+WIDE_WIDTH=1440
+
+# ── Finishing ── INSTALL_DEPS is skipped automatically when npm is missing
+INSTALL_DEPS=yes
+INIT_GIT=yes
+REMOVE_SCRIPT=no
+```
+
+Format rules:
+
+- **Only whole lines starting with `#` are comments.** A `#` later in a line is part of the value, which is what lets `PRIMARY_COLOR=#1a3a5c` work, so put notes on their own lines.
+- Whitespace around keys and values is trimmed. A value may be wrapped in matching `"` or `'` quotes.
+- Yes/no keys take `y`, `yes`, `true`, `1`, `n`, `no`, `false` or `0`, in any case.
+- `DATA_STRATEGY` takes the short tokens `bindings`, `acf` or `per-component`. The prompt's option numbers (`1`–`3`) and full labels are accepted too.
+- CRLF line endings (a file saved in Notepad) are fine.
+- Unknown keys, repeated keys and lines without `=` are errors, so a typo cannot silently fall back to a default.
+
+Every value goes through the same validators as the prompts, plus the same cross-checks: the theme slug must not already exist or collide with a WordPress name, the plugin directory must not already exist, and the wide width must not be narrower than the content width. All problems are reported together, and **nothing is written** unless the whole file is valid:
+
+```
+  ✗  acme.answers: 2 invalid answer(s). Nothing was written.
+    THEME_SLUG: Lowercase letters, numbers and hyphens only, e.g. acme-clinic. (value 'Acme Clinic')
+    WIDE_WIDTH: Wide width (1200px) is narrower than content width (1440px), which is backwards. (value '1200')
+```
+
+An error about a value you didn't set says `derived default '…'`. That means the fix is in the key it was derived from, usually `PROJECT_NAME`.
+
+Once the answers validate, the script prints the resolved values, then one plain line per step as each finishes. There are no colors or progress bars in this mode, even in a terminal, so a calling process can show or parse the lines:
+
+```
+[1/13] Renaming themes/starter → themes/acme-clinic ... done (31ms)
+[2/13] Rewriting slugs, prefixes and text domains ... done (20 of 63 files changed, 1.9s)
+…
+[11/13] Installing npm dependencies ... done (272 top-level packages, 8.6s)
+[12/13] Running the first build ... done (CSS and JS compiled, 3.0s)
+[13/13] Initializing the git repository ... done (branch main, 1 commit, 169ms)
+```
+
+Each line matches `^\[(\d+)/(\d+)\] (.+) \.\.\. (done|skipped|warning)(?: \((.*)\))?$`. Exit status: `0` success (possibly with `warning` steps), `1` preflight or runtime failure, `2` bad option or invalid answers file (nothing written).
+
 ### 4. Open in your editor
 
-Open the `wp-content/` directory in Windsurf (or VS Code) via WSL, activate Claude Code, and start building.
+Open the `wp-content/` directory in Windsurf or VS Code, activate Claude Code, and start building. If you set up under WSL, open the folder through the editor's WSL remote so Claude Code runs where `node_modules/` was installed. If you used Git Bash, open it directly. Claude Code on native Windows runs its shell commands and this project's hooks through Git Bash.
 
 **Accept the workspace trust prompt the first time.** Until you do, Claude Code reads `.claude/settings.json` but does not apply its permission rules — which looks exactly like the allowlist being ignored. See [Claude Code setup](#claude-code-setup) below.
 
@@ -79,7 +197,7 @@ In WordPress admin, go to Appearance > Themes and activate your new theme.
 
 ```
 wp-content/
-├── setup.sh                     # Interactive project setup (delete after use)
+├── setup.sh                     # Project setup, interactive or --answers (delete after use)
 ├── CLAUDE.md                    # Claude Code instructions and coding standards
 ├── package.json                 # npm build scripts
 ├── .claude/
@@ -137,13 +255,31 @@ npm run lint      # Run Stylelint + ESLint
 
 ## Claude Code setup
 
+### What `.claude/settings.json` sets
+
+| Key | Value | Effect |
+|---|---|---|
+| `model` | `sonnet` | Session model. Subagents pick their own (see [Model routing](#model-routing)). |
+| `fallbackModel` | `[ "opus" ]` | Used only when the session model is unavailable (overload, rate limit). |
+| `effortLevel` | `medium` | Default reasoning effort. |
+| `permissions.defaultMode` | `acceptEdits` | File edits are applied without a prompt. |
+| `permissions.allow` | `Bash`, `Read`, `Edit`, `Write`, `Glob`, `Grep`; `WebFetch` for `developer.wordpress.org`, `make.wordpress.org`, `wordpress.org`, `schemas.wp.org`, `www.advancedcustomfields.com`; the Playwright, Figma and Chrome DevTools MCP servers | Broad by design (see below). |
+| `permissions.ask` | `rm -r`/`rm -rf`, `wp db`, `wp site`, `wp user delete`, `curl`, `wget`, `git push`, `npm publish`, `npm audit fix --force` | Always prompts, despite the broad allow. |
+| `permissions.deny` | `sudo`, `rm -rf /` and `~`, force-push, `git reset --hard`, `git checkout --`, `git clean -f`, `wp db drop`/`reset`, `wp site empty`, and reading `.env*` by any tool or via `cat`/`head`/`tail`/`less`/`more`/`grep`/`sed`/`awk` | Never allowed. |
+| `hooks` | `PreToolUse` → `block-generated-files.sh`, `PostToolUse` → `lint-changed-file.sh` | See [Hooks](#hooks). |
+| `enableAllProjectMcpServers` | `true` | Starts the servers in `.mcp.json` (Playwright) without asking. |
+| `env` | `NODE_ENV=development` | |
+| `includeGitInstructions`, `respectGitignore` | `true` | |
+
+Personal overrides go in `.claude/settings.local.json`, which is gitignored.
+
 ### Why the permission prompts kept happening
 
 A long `permissions.allow` list producing constant approval prompts has three causes, and the allowlist itself is only one of them.
 
 **1. Compound commands are decomposed.** Claude Code splits any Bash command on `&&`, `||`, `;`, `|`, `|&`, `&` and newlines, then requires *every* segment to match an allow rule independently. `Bash(git status *)` does not permit `git status && npm run build` if any segment falls outside the rules. Approving one interactively saves a separate narrow rule per subcommand — up to five — which is how an allowlist grows to a hundred entries and still misses things.
 
-The fix is counterintuitive: a **broader** allow list, not a longer one. `.claude/settings.json` now allows the `Bash` tool outright and uses short, explicit `ask` and `deny` lists for what actually warrants a pause — destructive `rm`, force-push, hard reset, `wp db`, `sudo`, reading `.env`. Precedence is deny then ask then allow, so the guards win regardless of the broad allow.
+The fix is counterintuitive: a **broader** allow list, not a longer one. `.claude/settings.json` allows the `Bash` tool outright and uses short, explicit lists for what actually warrants a pause. The `ask` list covers recursive `rm`, `wp db`, `git push`, `curl`/`wget` and similar. The `deny` list covers force-push, hard reset, `git clean -f`, `sudo` and reading `.env`. Precedence is deny, then ask, then allow, so the guards win regardless of the broad allow.
 
 For the record, `Bash(npm run *)` and `Bash(npm run:*)` are equivalent — `:*` is sugar for a trailing ` *`. That syntax was never the problem. A colon *mid*-pattern is: in `Bash(git:* push)` the colon is literal and the rule matches nothing.
 
@@ -177,7 +313,9 @@ Two hooks in `.claude/hooks/` enforce what documentation can only request:
 - **`block-generated-files.sh`** (PreToolUse) refuses edits to `assets/css`, `assets/js`, `node_modules`, `package-lock.json` and `vendor`. Editing compiled CSS instead of the SCSS source is work the next build silently destroys.
 - **`lint-changed-file.sh`** (PostToolUse) runs `php -l`, stylelint, eslint or a JSON parse on whatever was just written and feeds failures straight back, so they get fixed in context rather than surfacing at the next build.
 
-Both stay quiet when a linter is not installed, so a fresh clone before `npm install` does not produce a wall of errors. `setup.sh` makes them executable; if you copy the boilerplate around by hand, run `chmod +x .claude/hooks/*.sh`.
+Both stay quiet when a linter is not installed, so a fresh clone before `npm install` does not produce a wall of errors.
+
+`settings.json` runs them as `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/<name>.sh"`. The quotes matter because Local's `Local Sites` folder has a space in it. Calling through `bash` means the executable bit doesn't matter, since Dropbox and NTFS don't preserve it. Both hooks convert Windows paths (`C:\…\assets\css\main.css`) to forward slashes before matching, so they behave the same under WSL, macOS and native Windows. This was tested live in Claude Code on native Windows.
 
 ### Skills
 

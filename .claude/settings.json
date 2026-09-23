@@ -1,73 +1,102 @@
 {
 	"$schema": "https://json.schemastore.org/claude-code-settings.json",
+
+	"model": "sonnet",
+	"fallbackModel": [ "opus" ],
+	"effortLevel": "medium",
+
 	"permissions": {
+		"defaultMode": "acceptEdits",
+
 		"allow": [
-			"Bash(npm run *)",
-			"Bash(npm install *)",
-			"Bash(npm update *)",
-			"Bash(npm ls *)",
-			"Bash(npm outdated *)",
-			"Bash(npm audit *)",
-			"Bash(node build/*)",
-			"Bash(npx stylelint *)",
-			"Bash(npx eslint *)",
-			"Bash(git status *)",
-			"Bash(git add *)",
-			"Bash(git commit *)",
-			"Bash(git log *)",
-			"Bash(git diff *)",
-			"Bash(git branch *)",
-			"Bash(git checkout *)",
-			"Bash(git stash *)",
-			"Bash(git show *)",
-			"Bash(git blame *)",
-			"Bash(git remote *)",
-			"Bash(ls *)",
-			"Bash(find *)",
-			"Bash(cat *)",
-			"Bash(head *)",
-			"Bash(tail *)",
-			"Bash(wc *)",
-			"Bash(grep *)",
-			"Bash(rg *)",
-			"Bash(mkdir *)",
-			"Bash(cp *)",
-			"Bash(mv *)",
-			"Bash(rm themes/starter/assets/*)",
-			"Bash(rm plugins/*/assets/*)",
-			"Bash(touch *)",
-			"Bash(php -l *)",
-			"Bash(php -r *)",
-			"Bash(which *)",
-			"Bash(echo *)",
-			"Bash(pwd)",
-			"Bash(tree *)",
-			"Bash(stat *)",
-			"Bash(file *)",
-			"Bash(diff *)",
-			"Bash(sort *)",
-			"Bash(uniq *)",
-			"Bash(sed *)",
-			"Bash(awk *)",
-			"Bash(wp *)",
-			"Read(*)",
-			"Edit(*)",
-			"Write(*)",
-			"mcp__plugin_playwright_playwright__*",
-			"mcp__plugin_figma_figma__*",
-			"mcp__plugin_chrome-devtools-mcp_chrome-devtools__*"
+			"Bash",
+			"Read",
+			"Edit",
+			"Write",
+			"Glob",
+			"Grep",
+			"WebFetch(domain:developer.wordpress.org)",
+			"WebFetch(domain:make.wordpress.org)",
+			"WebFetch(domain:wordpress.org)",
+			"WebFetch(domain:schemas.wp.org)",
+			"WebFetch(domain:www.advancedcustomfields.com)",
+			"mcp__playwright",
+			"mcp__plugin_playwright_playwright",
+			"mcp__plugin_figma_figma",
+			"mcp__plugin_chrome-devtools-mcp_chrome-devtools"
 		],
+
+		"ask": [
+			"Bash(rm -rf *)",
+			"Bash(rm -r *)",
+			"Bash(wp db *)",
+			"Bash(wp site *)",
+			"Bash(wp user delete*)",
+			"Bash(curl *)",
+			"Bash(wget *)",
+			"Bash(npm publish*)",
+			"Bash(npm audit fix --force*)",
+			"Bash(git push*)"
+		],
+
 		"deny": [
-			"Bash(git push --force *)",
-			"Bash(git reset --hard *)",
+			"Bash(sudo *)",
 			"Bash(rm -rf /)",
 			"Bash(rm -rf /*)",
-			"Read(.env*)"
+			"Bash(rm -rf ~*)",
+			"Bash(git push --force*)",
+			"Bash(git push -f*)",
+			"Bash(git reset --hard*)",
+			"Bash(git checkout -- *)",
+			"Bash(git clean -f*)",
+			"Bash(wp db drop*)",
+			"Bash(wp db reset*)",
+			"Bash(wp site empty*)",
+			"Read(.env*)",
+			"Read(**/.env*)",
+			"Bash(cat *.env*)",
+			"Bash(cat .env*)",
+			"Bash(head *.env*)",
+			"Bash(tail *.env*)",
+			"Bash(less *.env*)",
+			"Bash(more *.env*)",
+			"Bash(grep * .env*)",
+			"Bash(sed * .env*)",
+			"Bash(awk * .env*)"
 		]
 	},
+
+	"hooks": {
+		"PreToolUse": [
+			{
+				"matcher": "Edit|Write|NotebookEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-generated-files.sh\""
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": "Edit|Write",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/lint-changed-file.sh\""
+					}
+				]
+			}
+		]
+	},
+
+	"enableAllProjectMcpServers": true,
+
 	"env": {
 		"NODE_ENV": "development"
 	},
+
 	"includeGitInstructions": true,
 	"respectGitignore": true
 }
