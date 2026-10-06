@@ -12,7 +12,7 @@
 		"build": "node build/compile-scss.mjs --minify && node build/bundle-js.mjs --minify",
 		"dev": "node build/dev-server.mjs",
 		"lint:scss": "stylelint \"themes/starter/src/scss/**/*.scss\" \"plugins/*/src/scss/**/*.scss\"",
-		"lint:js": "eslint \"themes/starter/src/js/**/*.js\" \"plugins/*/src/js/**/*.js\" \"build/**/*.mjs\"",
+		"lint:js": "eslint --no-error-on-unmatched-pattern \"themes/starter/src/js/**/*.js\" \"plugins/*/src/js/**/*.js\" \"build/**/*.mjs\"",
 		"lint": "npm run lint:scss && npm run lint:js"
 	},
 	"devDependencies": {

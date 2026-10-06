@@ -18,11 +18,6 @@
 			"link": {
 				"color": {
 					"text": "var:preset|color|white"
-				},
-				":hover": {
-					"color": {
-						"text": "var:preset|color|light-gray"
-					}
 				}
 			},
 			"button": {
@@ -32,8 +27,8 @@
 				},
 				":hover": {
 					"color": {
-						"background": "var:preset|color|off-white",
-						"text": "var:preset|color|primary-dark"
+						"background": "var:preset|color|secondary",
+						"text": "var:preset|color|white"
 					}
 				}
 			}

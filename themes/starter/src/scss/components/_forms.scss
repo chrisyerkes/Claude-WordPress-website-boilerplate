@@ -15,10 +15,12 @@ textarea,
 select {
 	width: 100%;
 	padding: 0.625rem 0.875rem;
-	border: 1px solid var(--wp--preset--color--light-gray);
+
+	// Primary, not a light grey: non-text UI needs 3:1 against the background.
+	border: 1px solid var(--wp--preset--color--primary);
 	border-radius: var(--wp--custom--border-radius--button);
 	background: var(--wp--preset--color--white);
-	color: var(--wp--preset--color--near-black);
+	color: var(--wp--preset--color--black);
 	font-size: var(--wp--preset--font-size--medium);
 	transition: border-color 200ms ease;
 
