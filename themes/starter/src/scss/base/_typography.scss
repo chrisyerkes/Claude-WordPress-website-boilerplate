@@ -21,4 +21,11 @@ b {
 // overflow-wrap, not the deprecated `word-break: break-word`.
 a {
 	overflow-wrap: break-word;
+
+	// Underline on hover and keyboard focus, so a link is still identifiable
+	// when its colour is close to the surrounding text (WCAG 1.4.1).
+	&:hover,
+	&:focus-visible {
+		text-decoration: underline;
+	}
 }

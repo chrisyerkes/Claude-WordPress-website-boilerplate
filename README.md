@@ -65,8 +65,10 @@ The script will walk you through:
 - **Local dev URL and BrowserSync port**
 - **ACF PRO toggle** (defaults to yes)
 - **Companion plugin scaffolding** (optional, creates a full plugin skeleton)
-- **Primary, secondary and tertiary brand colors**, with an option to derive `primary-dark`, `primary-light` and `secondary-dark` from them
-- **Content and wide layout widths**
+- **WordPress version**, read from `../wp-includes/version.php` when core is present, so the `theme.json` schema is pinned to the release you are building against. You are only asked when core is not found.
+- **Primary, secondary and tertiary brand colors**, each with an optional name (`Primary · Slate Teal` in the editor). Also an optional off-white, any number of named accents, and an opt-in to derive `primary-dark`, `primary-light` and `secondary-dark`. Each color's WCAG contrast against white and black is printed; a color under 4.5:1 is flagged as decorative or large-text only. The check reports and never blocks.
+- **Heading and body fonts** (optional), by Fontsource name. They are downloaded once into `themes/<slug>/assets/fonts/`, so visitors make no third-party font request.
+- **Content and wide layout widths**, and the smallest and largest viewport for the fluid type and spacing scale
 - **npm install + initial build**
 - **Git initialization** with a clean first commit
 
@@ -134,16 +136,35 @@ DATA_STRATEGY=bindings
 SCAFFOLD_BINDINGS=yes
 SCAFFOLD_ABILITY=no
 
-# ── Brand colors ── blank keeps the boilerplate color
+# ── WordPress ── default: the release in ../wp-includes/version.php
+# Pins the theme.json schema to https://schemas.wp.org/wp/<WP_VERSION>/theme.json
+WP_VERSION=7.0
+
+# ── Brand colors ── blank keeps the placeholder color already in theme.json
 PRIMARY_COLOR=#1a3a5c
+PRIMARY_NAME=Slate Teal
 SECONDARY_COLOR=#c0392b
+SECONDARY_NAME=Terracotta
 TERTIARY_COLOR=#e67e22
-# Regenerate primary-dark, primary-light and secondary-dark from the above
-DERIVE_SHADES=yes
+TERTIARY_NAME=Sand
+# Optional neutral. White and black are always included.
+OFF_WHITE=#f8f8f8
+# Repeat ACCENT for each named accent: slug | #hex | Name
+ACCENT = highlight | #ffd166 | Highlight
+ACCENT = ink | #1d1d2c | Ink
+# Adds primary-dark, primary-light and secondary-dark. Off by default.
+DERIVE_SHADES=no
+
+# ── Fonts ── Fontsource names (fontsource.org). Blank keeps the system font.
+HEADING_FONT=fraunces
+BODY_FONT=inter
 
 # ── Layout ──
 CONTENT_WIDTH=1170
 WIDE_WIDTH=1440
+# The fluid type and spacing scale runs between these two viewport widths (px)
+VIEWPORT_MIN=375
+VIEWPORT_MAX=1440
 
 # ── Finishing ── INSTALL_DEPS is skipped automatically when npm is missing
 INSTALL_DEPS=yes
@@ -157,6 +178,7 @@ Format rules:
 - Whitespace around keys and values is trimmed. A value may be wrapped in matching `"` or `'` quotes.
 - Yes/no keys take `y`, `yes`, `true`, `1`, `n`, `no`, `false` or `0`, in any case.
 - `DATA_STRATEGY` takes the short tokens `bindings`, `acf` or `per-component`. The prompt's option numbers (`1`–`3`) and full labels are accepted too.
+- `ACCENT` is the one key that may repeat, once per accent, as `slug | #hex | Name`. The slug must be new and must not be a palette name such as `primary` or `off-white`.
 - CRLF line endings (a file saved in Notepad) are fine.
 - Unknown keys, repeated keys and lines without `=` are errors, so a typo cannot silently fall back to a default.
 
@@ -218,7 +240,7 @@ wp-content/
 └── themes/starter/
     ├── style.css                # Theme header
     ├── functions.php            # Bootstrap, pattern categories, ACF notice
-    ├── theme.json               # Design tokens, v3 schema pinned to WP 7.0
+    ├── theme.json               # Design tokens, v3 schema pinned to the detected WP release
     ├── inc/
     │   ├── theme-setup.php      # Theme supports, editor styles, nav menus
     │   ├── enqueue.php          # Assets, per-block styles, script modules
@@ -246,6 +268,33 @@ npm run scss      # Compile SCSS only
 npm run js        # Bundle JS only
 npm run lint      # Run Stylelint + ESLint
 ```
+
+### Design tokens: palette, type scale and fonts
+
+`setup.sh` writes the design tokens with four Node scripts in `build/`. Each one also runs on its own, which is how to change a value after setup:
+
+```bash
+node build/fluid-clamp.mjs                                    # print the type and spacing scale
+node build/fluid-clamp.mjs --write themes/<slug>/theme.json \
+  --vmin 375 --vmax 1440                                      # regenerate the fluid and fixed presets
+node build/write-tokens.mjs --theme-dir themes/<slug> --schema 7.0 --palette palette.txt [--derive]
+node build/install-fonts.mjs --theme-dir themes/<slug> --role heading \
+  --package @fontsource-variable/fraunces --fallback "Georgia, serif"
+node build/contrast.mjs primary=#1a3a5c secondary=#c0392b    # WCAG ratios on white and black
+```
+
+`palette.txt` has one `slug|#hex|Label` line per color. `write-tokens.mjs` replaces the whole palette, so list every color the theme should have; it appends `white` and `black` if they are missing.
+
+**The type and spacing scale** is defined once, in `build/fluid-clamp.mjs`, as min and max sizes in px. It becomes two labelled sets:
+
+- **Font sizes:** eight fluid sizes, `small` to `colossal`, each with `fluid: { min, max }` in rem and a name such as `Fluid · Medium (16 → 18px)`. Then ten fixed sizes, `fixed-14` to `fixed-60`, named `Fixed · 16px`. WordPress computes the fluid clamp from `settings.typography.fluid`, which `setup.sh` sets from the viewport range you enter.
+- **Spacing:** the original slugs `xs`, `s`, `m`, `l`, `xl`, `2-xl`, `3-xl` now hold `clamp()` values across the same viewport range, so templates and patterns did not need to change. Then nine fixed steps, `fixed-4` to `fixed-96`.
+
+To change a size, edit the table in `build/fluid-clamp.mjs`, then run the `--write` command.
+
+**Fonts** use the role slugs `heading` and `body`, so templates reference the role and never the font name. `install-fonts.mjs` copies the Latin variable files into `themes/<slug>/assets/fonts/<font>/`, with the package's OFL license, and reads the weight range from the package's own CSS. Those files are source, not build output. The template ships with system fonts, so a project without fonts works offline.
+
+Every step runs on native Windows under Git Bash or PowerShell, with Node 20 or later. `tar` is needed for font installs, and it ships with Windows 10 and later.
 
 ## Dependency notes
 

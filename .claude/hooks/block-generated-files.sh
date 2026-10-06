@@ -7,6 +7,9 @@
 # the next `npm run build` silently destroys, which is a genuinely expensive
 # mistake to debug.
 #
+# Only assets/css and assets/js are generated. assets/fonts and any images
+# under assets/ are hand-maintained source, so they are deliberately allowed.
+#
 # Contract (https://code.claude.com/docs/en/hooks):
 #   stdin  : JSON with .tool_name and .tool_input.file_path
 #   exit 0 : allow (fall through to normal permission handling)

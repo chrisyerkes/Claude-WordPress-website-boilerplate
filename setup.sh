@@ -545,6 +545,138 @@ HINT_PORT="A number between 1024 and 65535."
 HINT_HEX="A hex color like #1a3a5c or 1a3a5c (3 or 6 digits), or blank to skip."
 HINT_PX="A pixel value between 320 and 3840."
 
+# ── Tokens: WordPress version, palette and fonts ─────────────────────────
+#
+# Helpers for the design-token steps. Defined before the configuration steps
+# because --answers mode calls some of them while it is loading.
+
+DEFAULT_WP_VERSION="7.0"
+FALLBACK_HEADING="Georgia, 'Times New Roman', Times, serif"
+FALLBACK_BODY="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif"
+HINT_WP="Use major.minor, for example 7.0."
+HINT_HEX_REQ="A hex color like #7ec8e3 or 7ec8e3."
+HINT_ACCENT_SLUG="Lowercase letters, numbers and hyphens, not already used and not a palette name such as primary."
+HINT_FONT="A Fontsource name in lowercase, e.g. fraunces or dm-sans. Leave blank for a system font."
+
+v_wp_version() { [[ "$1" =~ ^[0-9]+\.[0-9]+$ ]]; }
+v_font_opt()   { [[ -z "$1" ]] || [[ "$1" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; }
+v_hex_req()    { [[ -n "$1" ]] && v_hex_opt "$1"; }
+
+# Accent slugs must be new and must not reuse a palette slot.
+v_accent_slug() {
+	local line
+	v_slug "$1" || return 1
+	case "$1" in
+		primary|secondary|tertiary|white|black|off-white|primary-dark|primary-light|secondary-dark) return 1 ;;
+	esac
+	for line in "${ACCENT_LINES[@]:-}"; do
+		[[ "${line%%|*}" == "$1" ]] && return 1
+	done
+	return 0
+}
+
+# The WordPress release from ../wp-includes/version.php, as major.minor.
+# wp-content/ sits directly under the WordPress root, so core is one level up.
+detect_wp_version() {
+	local file="../wp-includes/version.php" v
+	[[ -f "$file" ]] || return 1
+	v=$(sed -n 's/^\$wp_version[[:space:]]*=[[:space:]]*.\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' "$file" | head -n 1)
+	v_wp_version "$v" || return 1
+	printf '%s' "$v"
+}
+
+# The hex theme.json holds for a slug right now, so a blank answer keeps it.
+current_palette_hex() {
+	node -e 'const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+const c = (j.settings?.color?.palette ?? []).find((p) => p.slug === process.argv[2]);
+process.stdout.write(c ? c.color : "");' "$THEME_JSON" "$1" 2>/dev/null
+}
+
+palette_label() {   # palette_label <Role> <name> — "Primary · Slate Teal", or "Primary"
+	if [[ -n "$2" ]]; then printf '%s · %s' "$1" "$2"; else printf '%s' "$1"; fi
+}
+
+# Writes the slug|hex|label lines that write-tokens.mjs reads. The brand
+# colors come first, then the optional off-white and accents, then white and
+# black. write-tokens replaces the whole palette, so every entry is listed.
+write_palette_file() {   # write_palette_file <file>
+	local out="$1" hex line
+	hex="${PRIMARY_COLOR:-$(current_palette_hex primary)}"
+	printf 'primary|%s|%s\n' "$hex" "$(palette_label Primary "$PRIMARY_NAME")" > "$out"
+	hex="${SECONDARY_COLOR:-$(current_palette_hex secondary)}"
+	printf 'secondary|%s|%s\n' "$hex" "$(palette_label Secondary "$SECONDARY_NAME")" >> "$out"
+	hex="${TERTIARY_COLOR:-$(current_palette_hex tertiary)}"
+	printf 'tertiary|%s|%s\n' "$hex" "$(palette_label Tertiary "$TERTIARY_NAME")" >> "$out"
+	if [[ -n "$OFF_WHITE" ]]; then
+		printf 'off-white|%s|Off White\n' "$OFF_WHITE" >> "$out"
+	fi
+	for line in "${ACCENT_LINES[@]:-}"; do
+		if [[ -n "$line" ]]; then printf '%s\n' "$line" >> "$out"; fi
+	done
+	printf 'white|#ffffff|White\nblack|#000000|Black\n' >> "$out"
+}
+
+# WCAG ratios for the colors that were entered. Report only; never blocks.
+print_contrast() {
+	local args=() line slug hex
+	$HAVE_NODE || return 0
+	if [[ -n "$PRIMARY_COLOR" ]];   then args+=("primary=${PRIMARY_COLOR}"); fi
+	if [[ -n "$SECONDARY_COLOR" ]]; then args+=("secondary=${SECONDARY_COLOR}"); fi
+	if [[ -n "$TERTIARY_COLOR" ]];  then args+=("tertiary=${TERTIARY_COLOR}"); fi
+	if [[ -n "$OFF_WHITE" ]];       then args+=("off-white=${OFF_WHITE}"); fi
+	for line in "${ACCENT_LINES[@]:-}"; do
+		[[ -n "$line" ]] || continue
+		IFS='|' read -r slug hex _ <<< "$line"
+		args+=("${slug}=${hex}")
+	done
+	(( ${#args[@]} > 0 )) || return 0
+	echo ""
+	print_info "Contrast against white and black (WCAG 2.2). Under 4.5:1 is decorative or large text only."
+	node build/contrast.mjs "${args[@]}"
+}
+
+# Warns about token references to a slug the palette does not define. Only
+# warns: a template that still says preset--color--off-white renders with no
+# color at all, which is easy to miss.
+check_palette_refs() {
+	local slugs refs missing="" ref
+	slugs=$(node -e 'const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+process.stdout.write((j.settings?.color?.palette ?? []).map((c) => c.slug).join("\n"));' "$THEME_JSON" 2>/dev/null) || return 0
+	refs=$(grep -rhoE 'preset--color--[a-z0-9-]+|preset\|color\|[a-z0-9-]+|has-[a-z0-9-]+-(background-color|color)' \
+		"$THEME_JSON" "$THEME_DIR/styles" "$THEME_DIR/templates" "$THEME_DIR/parts" \
+		"$THEME_DIR/patterns" "$THEME_DIR/src" "$THEME_DIR/inc" 2>/dev/null \
+		| sed -E 's/^preset--color--//; s/^preset\|color\|//; s/^has-//; s/-(background-color|color)$//' \
+		| grep -vxE '(text|link|background)' | sort -u)
+	while IFS= read -r ref; do
+		[[ -n "$ref" ]] || continue
+		grep -qxF "$ref" <<< "$slugs" || missing+="${missing:+, }${ref}"
+	done <<< "$refs"
+	if [[ -n "$missing" ]]; then
+		print_warn "Templates or styles use palette slugs that the palette does not define: ${missing}."
+		print_info "Repoint them to a defined slug, or add the color, then check with: grep -r \"preset--color--\" themes/${THEME_SLUG}"
+	fi
+	return 0
+}
+
+FONT_NOTES=()
+FONT_PROBLEMS=()
+
+# install_font <heading|body> <fontsource name> <fallback stack>
+install_font() {
+	local role="$1" name="$2" fallback="$3" out
+	if ! $HAVE_NODE; then
+		FONT_PROBLEMS+=("${role}: Node is needed to install ${name}. Add the font by hand, see README.md.")
+		return 0
+	fi
+	if out=$(node build/install-fonts.mjs --theme-dir "$THEME_DIR" --role "$role" \
+		--package "@fontsource-variable/${name}" --fallback "$fallback" 2>&1); then
+		FONT_NOTES+=("$out")
+	else
+		FONT_PROBLEMS+=("${role}: ${name} was not installed. ${out}")
+	fi
+	return 0
+}
+
 def_project_name() { printf '%s' "My Client Site"; }
 def_theme_name()   { printf '%s' "$PROJECT_NAME"; }
 def_theme_slug()   { slugify "$PROJECT_NAME"; }
@@ -681,8 +813,12 @@ show_help() {
       THEME_DESCRIPTION  AUTHOR_NAME  AUTHOR_URI  LOCAL_URL
       BROWSERSYNC_PORT  USE_ACF  CREATE_PLUGIN  PLUGIN_SLUG
       DATA_STRATEGY  SCAFFOLD_BINDINGS  SCAFFOLD_ABILITY
-      PRIMARY_COLOR  SECONDARY_COLOR  TERTIARY_COLOR  DERIVE_SHADES
-      CONTENT_WIDTH  WIDE_WIDTH  INSTALL_DEPS  INIT_GIT  REMOVE_SCRIPT
+      WP_VERSION  HEADING_FONT  BODY_FONT
+      PRIMARY_COLOR  PRIMARY_NAME  SECONDARY_COLOR  SECONDARY_NAME
+      TERTIARY_COLOR  TERTIARY_NAME  OFF_WHITE  DERIVE_SHADES
+      ACCENT  (repeatable: ACCENT = slug | #hex | Name)
+      VIEWPORT_MIN  VIEWPORT_MAX  CONTENT_WIDTH  WIDE_WIDTH
+      INSTALL_DEPS  INIT_GIT  REMOVE_SCRIPT
 
     Yes/no keys take y/yes/true/1 or n/no/false/0. DATA_STRATEGY takes
     bindings, acf or per-component. Every value is checked before anything
@@ -1015,7 +1151,12 @@ THEME_DESCRIPTION=""; AUTHOR_NAME=""; AUTHOR_URI=""
 LOCAL_URL=""; BROWSERSYNC_PORT=""
 USE_ACF=""; CREATE_PLUGIN=""; PLUGIN_SLUG=""; INIT_GIT=""
 DATA_STRATEGY=""; SCAFFOLD_BINDINGS=""; SCAFFOLD_ABILITY=""
-PRIMARY_COLOR=""; SECONDARY_COLOR=""; TERTIARY_COLOR=""; DERIVE_SHADES=""
+WP_VERSION=""
+PRIMARY_COLOR=""; PRIMARY_NAME=""; SECONDARY_COLOR=""; SECONDARY_NAME=""
+TERTIARY_COLOR=""; TERTIARY_NAME=""; OFF_WHITE=""; DERIVE_SHADES="false"
+ACCENT_LINES=(); ACCENT_RAW=()
+HEADING_FONT=""; BODY_FONT=""
+VIEWPORT_MIN=""; VIEWPORT_MAX=""
 CONTENT_WIDTH=""; WIDE_WIDTH=""
 INSTALL_DEPS=""; REMOVE_SCRIPT=""
 
@@ -1155,30 +1296,78 @@ step_git() {
 	return 0
 }
 
+step_wp_version() {
+	print_section "WordPress Version"
+	local detected
+	if detected=$(detect_wp_version); then
+		WP_VERSION="$detected"
+		print_ok "WordPress ${WP_VERSION} found in ../wp-includes — theme.json will pin that schema."
+		return 0
+	fi
+	print_info "WordPress core was not found in ../wp-includes, so the version cannot be read."
+	print_info "Enter the release this theme targets. The schema pin follows it."
+	echo ""
+	prompt "WordPress version" "${WP_VERSION:-$DEFAULT_WP_VERSION}" WP_VERSION v_wp_version "$HINT_WP" || return $?
+	return 0
+}
+
 step_colors() {
 	print_section "Brand Colors"
-	print_info "All optional — press Enter to skip any of them. These map to the"
-	print_info "primary / secondary / tertiary slugs in theme.json and are available"
-	print_info "as var(--wp--preset--color--primary) etc. Change them later any time."
+	print_info "All optional — press Enter to keep the placeholder. Each color becomes a slug in theme.json,"
+	print_info "available as var(--wp--preset--color--primary) etc. The name is optional and shows in the editor."
 	echo ""
 	prompt "Primary color (hex)"   "${PRIMARY_COLOR:-}"   PRIMARY_COLOR   v_hex_opt "$HINT_HEX" || return $?
+	prompt "Primary name"          "${PRIMARY_NAME:-}"    PRIMARY_NAME    || return $?
 	prompt "Secondary color (hex)" "${SECONDARY_COLOR:-}" SECONDARY_COLOR v_hex_opt "$HINT_HEX" || return $?
+	prompt "Secondary name"        "${SECONDARY_NAME:-}"  SECONDARY_NAME  || return $?
 	prompt "Tertiary color (hex)"  "${TERTIARY_COLOR:-}"  TERTIARY_COLOR  v_hex_opt "$HINT_HEX" || return $?
+	prompt "Tertiary name"         "${TERTIARY_NAME:-}"   TERTIARY_NAME   || return $?
 
 	PRIMARY_COLOR=$(normalize_hex "$PRIMARY_COLOR")
 	SECONDARY_COLOR=$(normalize_hex "$SECONDARY_COLOR")
 	TERTIARY_COLOR=$(normalize_hex "$TERTIARY_COLOR")
 
-	# The palette also ships primary-dark, primary-light and secondary-dark.
-	# Leaving those at the boilerplate navy next to a brand-new primary looks
-	# broken, so offer to regenerate them from what was just entered.
-	if [[ -n "$PRIMARY_COLOR" || -n "$SECONDARY_COLOR" ]]; then
-		echo ""
-		print_info "theme.json also defines primary-dark, primary-light and secondary-dark."
-		prompt_yn "Derive those shades from the colors above?" "$(yn_default "$DERIVE_SHADES" y)" DERIVE_SHADES || return $?
-	else
-		DERIVE_SHADES="false"
+	echo ""
+	print_info "White and black are always included. An off-white is the only other neutral, and is optional."
+	prompt "Off-white (hex, optional)" "${OFF_WHITE:-}" OFF_WHITE v_hex_opt "$HINT_HEX" || return $?
+	OFF_WHITE=$(normalize_hex "$OFF_WHITE")
+
+	echo ""
+	print_info "Accents are extra named colors, such as a highlight or a status color. Add as many as needed."
+	if (( ${#ACCENT_LINES[@]} > 0 )); then
+		print_info "Accents entered so far:"
+		local line
+		for line in "${ACCENT_LINES[@]}"; do printf '    %s\n' "${line//|/  ·  }"; done
+		prompt_yn "Remove them and start again?" "n" CLEAR_ACCENTS || return $?
+		if [[ "$CLEAR_ACCENTS" == "true" ]]; then ACCENT_LINES=(); fi
 	fi
+	local add_accent="n" slug hex label
+	if (( ${#ACCENT_LINES[@]} > 0 )); then add_accent="y"; fi
+	prompt_yn "Add an accent color?" "$add_accent" ADD_ACCENT || return $?
+	while [[ "$ADD_ACCENT" == "true" ]]; do
+		prompt "Accent slug (e.g. sky)" "" ACCENT_SLUG v_accent_slug "$HINT_ACCENT_SLUG" || return $?
+		prompt "Accent hex" "" ACCENT_HEX v_hex_req "$HINT_HEX_REQ" || return $?
+		prompt "Accent name (e.g. Sky Blue)" "" ACCENT_LABEL v_nonempty "$HINT_NONEMPTY" || return $?
+		ACCENT_LINES+=("${ACCENT_SLUG}|$(normalize_hex "$ACCENT_HEX")|Accent · ${ACCENT_LABEL}")
+		prompt_yn "Add another accent color?" "n" ADD_ACCENT || return $?
+	done
+
+	echo ""
+	print_info "Optional. Adds primary-dark, primary-light and secondary-dark, computed from the brand colors."
+	print_info "The template does not use them, so leave this off unless your own components need them."
+	prompt_yn "Derive those shades?" "$(yn_default "$DERIVE_SHADES" n)" DERIVE_SHADES || return $?
+
+	print_contrast
+	return 0
+}
+
+step_fonts() {
+	print_section "Fonts"
+	print_info "Optional. Variable fonts from Fontsource (fontsource.org) are downloaded once and served"
+	print_info "from the theme, so visitors make no third-party font request. Blank keeps the system font."
+	echo ""
+	prompt "Heading font" "${HEADING_FONT:-}" HEADING_FONT v_font_opt "$HINT_FONT" || return $?
+	prompt "Body font"    "${BODY_FONT:-}"    BODY_FONT    v_font_opt "$HINT_FONT" || return $?
 	return 0
 }
 
@@ -1191,6 +1380,16 @@ step_widths() {
 		print_warn "$problem"
 		return $BACK_RC
 	fi
+
+	echo ""
+	print_info "Type and spacing scale smoothly between these two viewport widths, in px."
+	print_info "Below the smallest, sizes hold at their minimum; above the largest, at their maximum."
+	prompt "Smallest viewport (px)" "${VIEWPORT_MIN:-375}" VIEWPORT_MIN v_px "$HINT_PX" || return $?
+	while true; do
+		prompt "Largest viewport (px)" "${VIEWPORT_MAX:-1440}" VIEWPORT_MAX v_px "$HINT_PX" || return $?
+		if (( VIEWPORT_MAX > VIEWPORT_MIN )); then break; fi
+		print_warn "The largest viewport must be wider than the smallest (${VIEWPORT_MIN}px)."
+	done
 	return 0
 }
 
@@ -1227,10 +1426,15 @@ step_review() {
 			"$([[ "$SCAFFOLD_BINDINGS" == "true" ]] && echo Yes || echo No)" \
 			"$([[ "$SCAFFOLD_ABILITY" == "true" ]] && echo Yes || echo No)" "$RESET"
 	fi
-	printf '  Primary:       %s%s%s\n' "$BOLD" "${PRIMARY_COLOR:-— (unchanged)}" "$RESET"
-	printf '  Secondary:     %s%s%s\n' "$BOLD" "${SECONDARY_COLOR:-— (unchanged)}" "$RESET"
-	printf '  Tertiary:      %s%s%s\n' "$BOLD" "${TERTIARY_COLOR:-— (unchanged)}" "$RESET"
+	printf '  WordPress:     %sschema %s%s\n' "$BOLD" "$WP_VERSION" "$RESET"
+	printf '  Primary:       %s%s%s\n' "$BOLD" "${PRIMARY_COLOR:-— (unchanged)}${PRIMARY_NAME:+ · $PRIMARY_NAME}" "$RESET"
+	printf '  Secondary:     %s%s%s\n' "$BOLD" "${SECONDARY_COLOR:-— (unchanged)}${SECONDARY_NAME:+ · $SECONDARY_NAME}" "$RESET"
+	printf '  Tertiary:      %s%s%s\n' "$BOLD" "${TERTIARY_COLOR:-— (unchanged)}${TERTIARY_NAME:+ · $TERTIARY_NAME}" "$RESET"
+	printf '  Off-white:     %s%s%s\n' "$BOLD" "${OFF_WHITE:-—}" "$RESET"
+	printf '  Accents:       %s%s%s\n' "$BOLD" "$(( ${#ACCENT_LINES[@]} )) entered" "$RESET"
 	printf '  Derive shades: %s%s%s\n' "$BOLD" "$([[ "$DERIVE_SHADES" == "true" ]] && echo Yes || echo No)" "$RESET"
+	printf '  Fonts:         %sheading %s · body %s%s\n' "$BOLD" "${HEADING_FONT:-system}" "${BODY_FONT:-system}" "$RESET"
+	printf '  Type scale:    %s%s–%spx viewport%s\n' "$BOLD" "$VIEWPORT_MIN" "$VIEWPORT_MAX" "$RESET"
 	printf '  Widths:        %scontent %spx · wide %spx%s\n' "$BOLD" "$CONTENT_WIDTH" "$WIDE_WIDTH" "$RESET"
 	printf '  Git init:      %s%s%s\n' "$BOLD" "$([[ "$INIT_GIT" == "true" ]] && echo Yes || echo No)" "$RESET"
 	printf '  npm install:   %s%s%s\n' "$BOLD" "$([[ "$INSTALL_DEPS" == "true" ]] && echo Yes || echo No)" "$RESET"
@@ -1261,7 +1465,9 @@ CONFIG_STEPS=(
 	step_data_strategy
 	step_scaffold
 	step_git
+	step_wp_version
 	step_colors
+	step_fonts
 	step_widths
 	step_install
 	step_review
@@ -1303,8 +1509,12 @@ ANSWER_KEYS=(
 	THEME_DESCRIPTION AUTHOR_NAME AUTHOR_URI LOCAL_URL BROWSERSYNC_PORT
 	USE_ACF CREATE_PLUGIN PLUGIN_SLUG DATA_STRATEGY
 	SCAFFOLD_BINDINGS SCAFFOLD_ABILITY
-	PRIMARY_COLOR SECONDARY_COLOR TERTIARY_COLOR DERIVE_SHADES
-	CONTENT_WIDTH WIDE_WIDTH INSTALL_DEPS INIT_GIT REMOVE_SCRIPT
+	WP_VERSION
+	PRIMARY_COLOR PRIMARY_NAME SECONDARY_COLOR SECONDARY_NAME
+	TERTIARY_COLOR TERTIARY_NAME OFF_WHITE ACCENT DERIVE_SHADES
+	HEADING_FONT BODY_FONT
+	VIEWPORT_MIN VIEWPORT_MAX CONTENT_WIDTH WIDE_WIDTH
+	INSTALL_DEPS INIT_GIT REMOVE_SCRIPT
 )
 declare -A ANSWERS=()
 ANSWER_ERRORS=()
@@ -1339,6 +1549,8 @@ read_answers_file() {
 		done
 		if ! $known; then
 			ANSWER_ERRORS+=("line ${n}: unknown key '${key}'")
+		elif [[ "$key" == "ACCENT" ]]; then
+			ACCENT_RAW+=("$val")   # repeatable: one line per accent
 		elif [[ -n "${ANSWERS[$key]+set}" ]]; then
 			ANSWER_ERRORS+=("line ${n}: ${key} is set more than once")
 		else
@@ -1453,8 +1665,19 @@ load_answers() {
 		ANSWER_NOTES+=("git is not installed, so INIT_GIT will be skipped.")
 	fi
 
+	# WordPress version: an answer wins, then core on disk, then the default.
+	WP_VERSION=$(answer WP_VERSION "")
+	if [[ -n "$WP_VERSION" ]]; then
+		check WP_VERSION v_wp_version "$HINT_WP"
+	elif WP_VERSION=$(detect_wp_version); then
+		:
+	else
+		WP_VERSION="$DEFAULT_WP_VERSION"
+		ANSWER_NOTES+=("WordPress core not found in ../wp-includes, so the schema is pinned to ${DEFAULT_WP_VERSION}. Set WP_VERSION to change it.")
+	fi
+
 	local c
-	for c in PRIMARY_COLOR SECONDARY_COLOR TERTIARY_COLOR; do
+	for c in PRIMARY_COLOR SECONDARY_COLOR TERTIARY_COLOR OFF_WHITE; do
 		printf -v "$c" '%s' "$(answer "$c" "")"
 		if v_hex_opt "${!c}"; then
 			printf -v "$c" '%s' "$(normalize_hex "${!c}")"
@@ -1462,10 +1685,41 @@ load_answers() {
 			bad "$c" "$HINT_HEX"
 		fi
 	done
-	if [[ -n "$PRIMARY_COLOR" || -n "$SECONDARY_COLOR" ]]; then
-		bool_answer DERIVE_SHADES true
-	else
-		DERIVE_SHADES="false"
+	PRIMARY_NAME=$(answer PRIMARY_NAME "")
+	SECONDARY_NAME=$(answer SECONDARY_NAME "")
+	TERTIARY_NAME=$(answer TERTIARY_NAME "")
+
+	# ACCENT = slug | #hex | Name, one line per accent.
+	ACCENT_LINES=()
+	local spec slug hex label
+	for spec in "${ACCENT_RAW[@]:-}"; do
+		[[ -n "$spec" ]] || continue
+		IFS='|' read -r slug hex label <<< "$spec"
+		slug=$(trim "${slug:-}"); hex=$(trim "${hex:-}"); label=$(trim "${label:-}")
+		if ! v_accent_slug "$slug"; then
+			ANSWER_ERRORS+=("ACCENT '${spec}': the slug must be new, lowercase, and not a palette name.")
+		elif ! v_hex_req "$hex"; then
+			ANSWER_ERRORS+=("ACCENT '${spec}': ${HINT_HEX_REQ}")
+		elif ! v_nonempty "$label"; then
+			ANSWER_ERRORS+=("ACCENT '${spec}': give a name after the second |.")
+		else
+			ACCENT_LINES+=("${slug}|$(normalize_hex "$hex")|Accent · ${label}")
+		fi
+	done
+
+	bool_answer DERIVE_SHADES false
+
+	HEADING_FONT=$(answer HEADING_FONT "")
+	check HEADING_FONT v_font_opt "$HINT_FONT"
+	BODY_FONT=$(answer BODY_FONT "")
+	check BODY_FONT v_font_opt "$HINT_FONT"
+
+	VIEWPORT_MIN=$(answer VIEWPORT_MIN 375)
+	check VIEWPORT_MIN v_px "$HINT_PX"
+	VIEWPORT_MAX=$(answer VIEWPORT_MAX 1440)
+	check VIEWPORT_MAX v_px "$HINT_PX"
+	if v_px "$VIEWPORT_MIN" && v_px "$VIEWPORT_MAX" && (( VIEWPORT_MAX <= VIEWPORT_MIN )); then
+		bad VIEWPORT_MAX "must be wider than VIEWPORT_MIN."
 	fi
 
 	CONTENT_WIDTH=$(answer CONTENT_WIDTH "$(def_content_width)")
@@ -1502,7 +1756,13 @@ load_answers() {
 	print_section "Answers from $(basename "$ANSWERS_FILE")"
 	local k
 	for k in "${ANSWER_KEYS[@]}"; do
-		if [[ "$k" == "DATA_STRATEGY" ]]; then
+		if [[ "$k" == "ACCENT" ]]; then
+			if (( ${#ACCENT_LINES[@]} == 0 )); then
+				printf '  %-18s %s\n' "$k" "—"
+			else
+				for spec in "${ACCENT_LINES[@]}"; do printf '  %-18s %s\n' "$k" "${spec//|/ | }"; done
+			fi
+		elif [[ "$k" == "DATA_STRATEGY" ]]; then
 			printf '  %-18s %s\n' "$k" "${DATA_STRATEGY%% —*}"
 		else
 			printf '  %-18s %s\n' "$k" "${!k}"
@@ -1513,6 +1773,7 @@ load_answers() {
 		local note
 		for note in "${ANSWER_NOTES[@]}"; do print_warn "$note"; done
 	fi
+	print_contrast
 	return 0
 }
 
@@ -1551,6 +1812,7 @@ plan                                                  # style.css header
 plan                                                  # package.json
 plan                                                  # dev server config
 plan                                                  # design tokens
+if [[ -n "$HEADING_FONT" || -n "$BODY_FONT" ]]; then plan; fi   # install fonts
 plan                                                  # Claude Code config
 if [[ "$CREATE_PLUGIN" == "true" ]]; then
 	plan                                              # scaffold plugin
@@ -1722,7 +1984,7 @@ if ! $DRY_RUN; then
 		printf 'Description: %s\n' "$THEME_DESCRIPTION"
 		printf 'Version: 1.0.0\n'
 		printf 'Requires at least: 7.0\n'
-		printf 'Tested up to: 7.0\n'
+		printf 'Tested up to: %s\n' "$WP_VERSION"
 		printf 'Requires PHP: 8.1\n'
 		printf 'License: GNU General Public License v2 or later\n'
 		printf 'License URI: https://www.gnu.org/licenses/gpl-2.0.html\n'
@@ -1785,131 +2047,53 @@ step_ok "${LOCAL_URL} → localhost:${BROWSERSYNC_PORT}"
 #  6 — Design tokens
 # ══════════════════════════════════════════════════════════════════════════
 #
-# theme.json is patched with a JSON-aware Node pass when Node is available,
-# which is immune to key ordering and whitespace. Without Node we fall back
-# to an awk pass keyed on the palette slug.
-#
-# Shades are derived in HSL: dark multiplies lightness by 0.62, light moves
-# it 28% of the way toward white. That keeps hue and saturation, which a
-# straight mix toward black/white does not.
+# theme.json is written by build/write-tokens.mjs (palette and schema pin),
+# build/fluid-clamp.mjs (type and spacing scale) and build/install-fonts.mjs
+# (fonts). All three are Node scripts; without Node the summary says what
+# to set by hand.
 
 TOKEN_NOTES=()
 TOKEN_PROBLEMS=()
 
-set_palette_color_node() {
-	local slug="$1" hex="$2" derive="$3"
-	SLUG="$slug" HEX="$hex" DERIVE="$derive" FILE="$THEME_JSON" node -e '
-const fs = require("fs");
-const { FILE, SLUG, HEX, DERIVE } = process.env;
-
-const toRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-const toHex = (rgb) =>
-	"#" + rgb.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join("");
-
-function rgbToHsl([r, g, b]) {
-	r /= 255; g /= 255; b /= 255;
-	const max = Math.max(r, g, b), min = Math.min(r, g, b);
-	const l = (max + min) / 2;
-	if (max === min) return [0, 0, l];
-	const d = max - min;
-	const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-	let h;
-	if (max === r) h = ((g - b) / d + (g < b ? 6 : 0));
-	else if (max === g) h = (b - r) / d + 2;
-	else h = (r - g) / d + 4;
-	return [h / 6, s, l];
-}
-
-function hslToRgb([h, s, l]) {
-	if (s === 0) return [l * 255, l * 255, l * 255];
-	const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-	const p = 2 * l - q;
-	const f = (t) => {
-		if (t < 0) t += 1;
-		if (t > 1) t -= 1;
-		if (t < 1 / 6) return p + (q - p) * 6 * t;
-		if (t < 1 / 2) return q;
-		if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-		return p;
-	};
-	return [f(h + 1 / 3) * 255, f(h) * 255, f(h - 1 / 3) * 255];
-}
-
-const shade = (hex, fn) => {
-	const [h, s, l] = rgbToHsl(toRgb(hex));
-	return toHex(hslToRgb([h, s, Math.max(0, Math.min(1, fn(l)))]));
-};
-const darker  = (hex) => shade(hex, (l) => l * 0.62);
-const lighter = (hex) => shade(hex, (l) => l + (1 - l) * 0.28);
-
-const json = JSON.parse(fs.readFileSync(FILE, "utf8"));
-const palette = json?.settings?.color?.palette;
-if (!Array.isArray(palette)) process.exit(3);
-
-const set = (slug, color) => {
-	const entry = palette.find((c) => c.slug === slug);
-	if (!entry) return false;
-	entry.color = color;
-	return true;
-};
-
-if (!set(SLUG, HEX)) process.exit(4);
-
-if (DERIVE === "true") {
-	set(SLUG + "-dark", darker(HEX));
-	set(SLUG + "-light", lighter(HEX));
-}
-
-fs.writeFileSync(FILE, JSON.stringify(json, null, "\t") + "\n");
-'
-}
-
-set_palette_color_awk() {
-	local slug="$1" hex="$2" tmp="${THEME_JSON}.setup.tmp"
-	awk -v slug="$slug" -v hex="$hex" '
-		$0 ~ "\"slug\"[[:space:]]*:[[:space:]]*\"" slug "\"" { armed = 1 }
-		armed && /"color"[[:space:]]*:/ {
-			sub(/"color"[[:space:]]*:[[:space:]]*"[^"]*"/, "\"color\": \"" hex "\"")
-			armed = 0
-		}
-		{ print }
-	' "$THEME_JSON" > "$tmp" && mv "$tmp" "$THEME_JSON"
-}
-
-apply_palette_color() {
-	local slug="$1" hex="$2"
-	if [[ -z "$hex" || ! -f "$THEME_JSON" ]]; then return 0; fi
-	if $HAVE_NODE; then
-		local rc=0
-		set_palette_color_node "$slug" "$hex" "$DERIVE_SHADES" || rc=$?
-		case "$rc" in
-			0) TOKEN_NOTES+=("${slug} ${hex}"); return 0 ;;
-			4) TOKEN_PROBLEMS+=("theme.json has no '${slug}' palette slug — set it manually."); return 0 ;;
-			*) : ;;   # fall through to awk
-		esac
-	fi
-	if set_palette_color_awk "$slug" "$hex"; then
-		TOKEN_NOTES+=("${slug} ${hex}")
-	else
-		TOKEN_PROBLEMS+=("Could not set '${slug}' in theme.json — set it manually.")
-	fi
-	return 0
-}
-
 step_start "Applying design tokens"
 set_context "writing design tokens into theme.json" \
-"Could not update ${THEME_JSON}. Set the palette colors and layout widths by
-hand in that file — nothing else in the setup depends on this step."
+"Could not update ${THEME_JSON}. Set the palette, schema pin, widths and
+type scale by hand in that file, then run build/write-tokens.mjs and
+build/fluid-clamp.mjs to regenerate them. Nothing else depends on this step."
 
 if ! $DRY_RUN; then
-	TOKEN_TOTAL=5
+	TOKEN_TOTAL=4
 	TOKEN_DONE=0
 
-	for pair in "primary:${PRIMARY_COLOR}" "secondary:${SECONDARY_COLOR}" "tertiary:${TERTIARY_COLOR}"; do
-		TOKEN_DONE=$(( TOKEN_DONE + 1 ))
-		step_progress "$TOKEN_DONE" "$TOKEN_TOTAL" "${pair%%:*}"
-		apply_palette_color "${pair%%:*}" "${pair#*:}"
-	done
+	TOKEN_DONE=$(( TOKEN_DONE + 1 ))
+	step_progress "$TOKEN_DONE" "$TOKEN_TOTAL" "palette and schema"
+	if ! $HAVE_NODE; then
+		TOKEN_PROBLEMS+=("Node is not installed, so the palette and schema pin were not written. Set them by hand in ${THEME_JSON}.")
+	else
+		PAL_FILE=$(mktemp)
+		write_palette_file "$PAL_FILE"
+		DERIVE_FLAG=()
+		if [[ "$DERIVE_SHADES" == "true" ]]; then DERIVE_FLAG=(--derive); fi
+		if out=$(node build/write-tokens.mjs --theme-dir "$THEME_DIR" --schema "$WP_VERSION" \
+			--palette "$PAL_FILE" "${DERIVE_FLAG[@]}" 2>&1); then
+			# write-tokens prints the palette it wrote, including any derived shades.
+			TOKEN_NOTES+=("palette $(printf '%s\n' "$out" | sed -n 's/^Palette: //p')")
+			TOKEN_NOTES+=("schema ${WP_VERSION}")
+		else
+			TOKEN_PROBLEMS+=("Palette not written: ${out}")
+		fi
+		rm -f "$PAL_FILE"
+	fi
+
+	TOKEN_DONE=$(( TOKEN_DONE + 1 ))
+	step_progress "$TOKEN_DONE" "$TOKEN_TOTAL" "type and spacing scale"
+	if $HAVE_NODE; then
+		if out=$(node build/fluid-clamp.mjs --write "$THEME_JSON" --vmin "$VIEWPORT_MIN" --vmax "$VIEWPORT_MAX" 2>&1); then
+			TOKEN_NOTES+=("scale ${VIEWPORT_MIN}–${VIEWPORT_MAX}px")
+		else
+			TOKEN_PROBLEMS+=("Type and spacing scale not written: ${out}")
+		fi
+	fi
 
 	TOKEN_DONE=$(( TOKEN_DONE + 1 ))
 	step_progress "$TOKEN_DONE" "$TOKEN_TOTAL" "content width"
@@ -1955,6 +2139,34 @@ if ! $DRY_RUN; then
 else
 	step_ok
 fi
+
+if [[ -n "$HEADING_FONT" || -n "$BODY_FONT" ]]; then
+	step_start "Installing fonts"
+	set_context "installing fonts" \
+"A font could not be fetched or copied. Check the network, then run the
+install by hand, for example:
+  node build/install-fonts.mjs --theme-dir themes/${THEME_SLUG} --role heading --package @fontsource-variable/<name> --fallback \"Georgia, serif\""
+
+	if ! $DRY_RUN; then
+		if [[ -n "$HEADING_FONT" ]]; then install_font heading "$HEADING_FONT" "$FALLBACK_HEADING"; fi
+		if [[ -n "$BODY_FONT" ]];    then install_font body "$BODY_FONT" "$FALLBACK_BODY"; fi
+		MUTATED=true
+		if (( ${#FONT_PROBLEMS[@]} > 0 )); then
+			step_warn "${FONT_PROBLEMS[0]}"
+			for p in "${FONT_PROBLEMS[@]:1}"; do print_warn "$p"; done
+		else
+			step_ok "${FONT_NOTES[0]:-fonts installed}"
+			for n in "${FONT_NOTES[@]:1}"; do print_ok "$n"; done
+		fi
+	else
+		step_ok
+	fi
+fi
+
+if ! $DRY_RUN && $HAVE_NODE; then
+	check_palette_refs
+fi
+
 
 # ══════════════════════════════════════════════════════════════════════════
 #  7 — Claude Code configuration
