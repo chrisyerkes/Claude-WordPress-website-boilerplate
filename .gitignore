@@ -49,6 +49,7 @@ Thumbs.db
 *.sublime-workspace
 
 # ── Local development ────────────────────────────────────────────
+.tools/
 *.log
 .env*
 .claude/settings.local.json

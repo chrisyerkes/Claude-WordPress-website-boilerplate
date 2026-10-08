@@ -63,6 +63,8 @@ npm run build     # production, minified
 npm run scss      # SCSS only
 npm run js        # JS only
 npm run lint      # stylelint + eslint
+npm run validate  # theme.json and styles/*.json against the vendored 7.1 schema
+npm run tools:setup  # one-time: download wp-cli.phar into .tools/ (setup.sh runs it)
 ```
 
 | Source | Output |
@@ -77,7 +79,7 @@ Keep that table current as entry points are added.
 
 `assets/fonts/` and any images under `assets/` are hand-maintained source. They are not generated, the hook does not block them, and `.gitignore` does not exclude them.
 
-The helper scripts in `build/` that `setup.sh` calls are also source: `fluid-clamp.mjs` (type and spacing scale), `write-tokens.mjs` (palette and schema pin), `install-fonts.mjs` (locally hosted fonts) and `contrast.mjs` (WCAG report).
+The helper scripts in `build/` that `setup.sh` calls are also source: `fluid-clamp.mjs` (type and spacing scale), `write-tokens.mjs` (palette and schema pin), `install-fonts.mjs` (locally hosted fonts), `contrast.mjs` (WCAG report), `wp.mjs` (WP-CLI wrapper), `setup-tools.mjs` (downloads wp-cli.phar) and `validate-theme-json.mjs` with its vendored schema in `build/schema/`.
 
 **Never run `npm audit fix --force`.** It downgrades browser-sync two major versions and destroys the dev server. See README for why the advisories are accepted.
 
@@ -86,6 +88,37 @@ The helper scripts in `build/` that `setup.sh` calls are also source: `fluid-cla
 1. **Quote paths, never backslash-escape spaces.** `cd "/mnt/c/Users/..."`, not `Local\ Sites`.
 2. **One command per call.** Do not chain with `&&`, `||`, `;` or `|` unless the pipeline is the point. Claude Code splits compound commands and matches every segment against the permission rules independently, so chaining is the most common cause of an unexpected approval prompt.
 3. The working directory is `wp-content/`. Run `npm run build` directly.
+4. **Use Read, Grep and Glob, not `cat`, `grep` or `find`.**
+5. **Never use curl or wget.** Check pages, HTML, responses and redirects with the Playwright MCP (or the Chrome extension MCP) via `page.goto`, `page.evaluate` and `waitForResponse`. Never download tools mid-session. `.claude/settings.json` keeps `Bash(curl *)` and `Bash(wget *)` under `ask` as a backstop; ask rules beat allow rules, so any curl still prompts.
+
+## Testing a Running Site
+
+Prefer Playwright for any check against the running site: page content, response codes, REST calls (`waitForResponse`), redirects and console errors. Use WP-CLI for database state.
+
+### WP-CLI
+
+```bash
+node build/wp.mjs <wp args>      # e.g. node build/wp.mjs option get home
+```
+
+`build/wp.mjs` finds the Local site that contains this repo (from `%APPDATA%/Local/sites.json`), reads its PHP version and current MySQL port (the port changes when Local restarts, so it is read on every run), and runs Local's own `php.exe` with that site's `php.ini` against `.tools/wp-cli.phar`. `npm run tools:setup` installs the phar once; `setup.sh` calls it. That is the one download the user approves. `.tools/` is gitignored, and tooling must live there, not in a session scratchpad, which is wiped between sessions. Set `LOCAL_SITE_ID` or `WP_PATH` if the repo is not inside the site folder.
+
+- **`wp db query` fails**, because Local's `mysql` client is not on PATH. Use `wp eval` with `$wpdb`: `node build/wp.mjs eval "global \$wpdb; echo \$wpdb->get_var('SELECT COUNT(*) FROM '.\$wpdb->posts);"`
+- PHP prints a `php_imagick.dll` startup warning on every run. It is Local's, and harmless.
+
+### Logged-in testing
+
+Generating auth cookies is blocked by Claude Code's safety checks. Instead: create a throwaway user with WP-CLI (`node build/wp.mjs user create tester tester@example.test --role=customer --user_pass=<random>`), log in through the real login or storefront form in Playwright, then delete the user (`node build/wp.mjs user delete tester --yes`). Delete it even if the test fails.
+
+### Playwright quirks
+
+- `file://` URLs are blocked, and hidden folders such as `wp-content/.playwright-mcp/` return 404. To preview generated HTML (emails, for example), write it temporarily under `uploads/`, open it over http in Playwright, then delete it.
+- Reading files from inside `browser_run_code_unsafe` fails (no dynamic import). Read them first and pass the content in.
+- Add a unique query string (`?t=<timestamp>`) when re-checking a page, to dodge a stale browser cache.
+
+### theme.json
+
+`npm run validate` checks `theme.json` and `styles/*.json` against `build/schema/theme-7.1.json`. It is the vendored 7.1 schema, so it works offline. Keys that are new in 7.1 validate even if the project's pin is older; `.claude/rules/theme-json.md` says which are safe to use.
 
 ## Delegating Work
 

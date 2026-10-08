@@ -1819,7 +1819,7 @@ if [[ "$CREATE_PLUGIN" == "true" ]]; then
 	plan                                              # wire into build
 	plan                                              # .gitignore
 fi
-if [[ "$INSTALL_DEPS" == "true" ]]; then plan; plan; fi   # npm install + build
+if [[ "$INSTALL_DEPS" == "true" ]]; then plan; plan; plan; fi   # npm install + build + wp-cli
 if [[ "$INIT_GIT" == "true" ]]; then plan; fi             # git init
 
 echo ""
@@ -2825,6 +2825,22 @@ A SCSS syntax error in one of the partials is the usual cause."
 			print_info "Full log: ${BUILD_LOG}"
 			echo ""
 		fi
+	fi
+
+	step_start "Installing WP-CLI into .tools/"
+	set_context "downloading wp-cli.phar" \
+"The wp-cli.phar download failed. Check connectivity, then run:
+  npm run tools:setup
+Nothing else depends on this step. It only enables 'node build/wp.mjs'."
+
+	if $DRY_RUN; then
+		step_skip "dry run"
+	elif $NPM_FAILED; then
+		step_skip "dependencies not installed"
+	elif node build/setup-tools.mjs > /dev/null 2>&1; then
+		step_ok "node build/wp.mjs <wp args>"
+	else
+		step_warn "download failed; run 'npm run tools:setup' later"
 	fi
 fi
 
