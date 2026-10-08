@@ -13,9 +13,12 @@
 		"dev": "node build/dev-server.mjs",
 		"lint:scss": "stylelint \"themes/starter/src/scss/**/*.scss\" \"plugins/*/src/scss/**/*.scss\"",
 		"lint:js": "eslint --no-error-on-unmatched-pattern \"themes/starter/src/js/**/*.js\" \"plugins/*/src/js/**/*.js\" \"build/**/*.mjs\"",
-		"lint": "npm run lint:scss && npm run lint:js"
+		"lint": "npm run lint:scss && npm run lint:js",
+		"validate": "node build/validate-theme-json.mjs",
+		"tools:setup": "node build/setup-tools.mjs"
 	},
 	"devDependencies": {
+		"ajv": "^8.17.1",
 		"autoprefixer": "^10.4.21",
 		"browser-sync": "^3.0.4",
 		"chokidar": "^3.6.0",
