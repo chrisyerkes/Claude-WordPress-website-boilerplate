@@ -269,6 +269,17 @@ npm run js        # Bundle JS only
 npm run lint      # Run Stylelint + ESLint
 ```
 
+### WP-CLI and the Local CLI
+
+```bash
+node build/wp.mjs option get home        # WP-CLI against this repo's Local site
+node build/local-cli.mjs list --json     # any other Local CLI command
+```
+
+Local 10.2+ ships a built-in CLI, `localwp`, made for coding agents ([docs](https://localwp.com/help-docs/advanced/local-cli/)). Turn it on in **Local › Preferences › Advanced › Install Local CLI › Apply**. With it on, `build/wp.mjs` runs WP-CLI through `localwp cli <site>`. Without it, `wp.mjs` falls back to Local's `php.exe` plus a `wp-cli.phar` that `npm run tools:setup` downloads into `.tools/`. `setup.sh` skips that download when the Local CLI is present.
+
+`build/local-cli.mjs` runs the same `localwp` commands without going through Local's Windows launcher. That launcher, `%APPDATA%\Local\bin\localwp.bat`, breaks when Local is installed under `C:\Program Files (x86)`: the `)` in the path ends one of the script's `if (...)` blocks early. The wrapper reads the paths Local wrote into the launcher and runs Local's Electron binary as Node directly.
+
 ### Design tokens: palette, type scale and fonts
 
 `setup.sh` writes the design tokens with four Node scripts in `build/`. Each one also runs on its own, which is how to change a value after setup:
@@ -313,8 +324,8 @@ Every step runs on native Windows under Git Bash or PowerShell, with Node 20 or 
 | `effortLevel` | `medium` | Default reasoning effort. |
 | `permissions.defaultMode` | `acceptEdits` | File edits are applied without a prompt. |
 | `permissions.allow` | `Bash`, `Read`, `Edit`, `Write`, `Glob`, `Grep`; `WebFetch` for `developer.wordpress.org`, `make.wordpress.org`, `wordpress.org`, `schemas.wp.org`, `www.advancedcustomfields.com`; the Playwright, Figma and Chrome DevTools MCP servers | Broad by design (see below). |
-| `permissions.ask` | `rm -r`/`rm -rf`, `wp db`, `wp site`, `wp user delete`, `curl`, `wget`, `git push`, `npm publish`, `npm audit fix --force` | Always prompts, despite the broad allow. |
-| `permissions.deny` | `sudo`, `rm -rf /` and `~`, force-push, `git reset --hard`, `git checkout --`, `git clean -f`, `wp db drop`/`reset`, `wp site empty`, and reading `.env*` by any tool or via `cat`/`head`/`tail`/`less`/`more`/`grep`/`sed`/`awk` | Never allowed. |
+| `permissions.ask` | `rm -r`/`rm -rf`, `wp db`, `wp site`, `wp user delete` (and the same through `localwp cli` and `local-cli.mjs cli`), `localwp new`/`stop`, `curl`, `wget`, `git push`, `npm publish`, `npm audit fix --force` | Always prompts, despite the broad allow. |
+| `permissions.deny` | `sudo`, `rm -rf /` and `~`, force-push, `git reset --hard`, `git checkout --`, `git clean -f`, `wp db drop`/`reset`, `wp site empty` (through every wrapper), and reading `.env*` by any tool or via `cat`/`head`/`tail`/`less`/`more`/`grep`/`sed`/`awk` | Never allowed. |
 | `hooks` | `PreToolUse` → `block-generated-files.sh`, `PostToolUse` → `lint-changed-file.sh` | See [Hooks](#hooks). |
 | `enableAllProjectMcpServers` | `true` | Starts the servers in `.mcp.json` (Playwright) without asking. |
 | `env` | `NODE_ENV=development` | |

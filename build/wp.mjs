@@ -5,23 +5,30 @@
  *   node build/wp.mjs <wp args>        e.g. node build/wp.mjs option get home
  *
  * Local keeps PHP and MySQL inside its own install, so a bare `wp` is not on
- * PATH and cannot reach the database. On every run this script:
+ * PATH and cannot reach the database. On every run this script finds the
+ * Local site whose folder contains this repo, from %APPDATA%/Local/sites.json,
+ * then runs WP-CLI against it one of two ways:
  *
- *   1. finds the Local site whose folder contains this repo, from
- *      %APPDATA%/Local/sites.json
- *   2. reads the site id, PHP version and current MySQL port (the port can
- *      change when Local restarts, so it is never cached)
- *   3. runs Local's own php.exe with that site's php.ini, pointed at the
- *      right MySQL port, against .tools/wp-cli.phar
+ *   1. Local CLI (preferred). Local 10.2+ ships `localwp cli <site> -- <args>`
+ *      (https://localwp.com/help-docs/advanced/local-cli/). Local supplies PHP,
+ *      the MySQL port and WP-CLI itself, so nothing is downloaded. Enable it in
+ *      Local > Preferences > Advanced > "Install Local CLI". See
+ *      build/local-cli.mjs for why this does not call localwp.bat.
  *
- * Install the phar once with `npm run tools:setup`.
+ *   2. Bundled phar (fallback). Runs Local's own php.exe with the site's
+ *      php.ini, pointed at the current MySQL port, against .tools/wp-cli.phar.
+ *      The port changes when Local restarts, so it is read on every run.
+ *      Install the phar once with `npm run tools:setup`.
  *
- * `wp db query` does not work: it shells out to a mysql client that Local
- * does not put on PATH. Use `wp eval '...$wpdb...'` instead.
+ * `wp db query` does not work either way: it shells out to a mysql client
+ * that cannot reach Local's MySQL. Use `wp eval '...$wpdb...'` instead.
  *
  * Overrides, for non-standard layouts:
- *   WP_PATH         WordPress root (the folder that holds wp-config.php)
+ *   WP_PATH         WordPress root (the folder that holds wp-config.php).
+ *                   Forces the phar route, since the Local CLI always uses
+ *                   the site's own web root.
  *   LOCAL_SITE_ID   site id in sites.json, skips the path match
+ *   WP_MJS_PHAR=1   use the phar even when the Local CLI is installed
  */
 
 import { spawnSync } from 'node:child_process';
@@ -29,9 +36,11 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findLocalCli, runLocalCli } from './local-cli.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const phar = join(repoRoot, '.tools', 'wp-cli.phar');
+const wpArgs = process.argv.slice(2);
 
 function fail(message) {
 	console.error(`wp.mjs: ${message}`);
@@ -55,8 +64,6 @@ function expandHome(p) {
 
 const appData = process.env.APPDATA;
 if (!appData) fail('APPDATA is not set. This wrapper is for Local on Windows.');
-
-if (!existsSync(phar)) fail('.tools/wp-cli.phar is missing. Run: npm run tools:setup');
 
 const sitesFile = join(appData, 'Local', 'sites.json');
 if (!existsSync(sitesFile)) fail(`${sitesFile} not found. Is Local installed?`);
@@ -84,6 +91,17 @@ if (!id) {
 }
 const site = id ? sites[id] : null;
 if (!site) fail(`no Local site in sites.json contains ${repoRoot}. Set LOCAL_SITE_ID to override.`);
+
+// Route 1: Local CLI.
+const localCli = process.env.WP_PATH || process.env.WP_MJS_PHAR === '1' ? null : findLocalCli();
+if (localCli) {
+	process.exit(runLocalCli(['cli', id, '--no-progress', '--', ...wpArgs], localCli));
+}
+
+// Route 2: Local's php.exe + .tools/wp-cli.phar.
+if (!existsSync(phar)) {
+	fail('no WP-CLI available. Either enable the Local CLI (Local 10.2+: Preferences > Advanced > "Install Local CLI"), or run: npm run tools:setup');
+}
 
 const phpVersion = site.services?.php?.version;
 const mysqlPort = site.services?.mysql?.ports?.MYSQL?.[0];
@@ -121,7 +139,7 @@ const args = [
 	'-d', `mysqli.default_port=${mysqlPort}`,
 	phar,
 	`--path=${wpPath}`,
-	...process.argv.slice(2),
+	...wpArgs,
 ];
 
 const result = spawnSync(php, args, { stdio: 'inherit' });
