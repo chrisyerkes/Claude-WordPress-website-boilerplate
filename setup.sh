@@ -2831,12 +2831,17 @@ A SCSS syntax error in one of the partials is the usual cause."
 	set_context "downloading wp-cli.phar" \
 "The wp-cli.phar download failed. Check connectivity, then run:
   npm run tools:setup
-Nothing else depends on this step. It only enables 'node build/wp.mjs'."
+Nothing else depends on this step. It only enables 'node build/wp.mjs',
+and isn't needed if you enable Local's built-in CLI (Local 10.2+:
+Preferences > Advanced > Install Local CLI)."
 
 	if $DRY_RUN; then
 		step_skip "dry run"
 	elif $NPM_FAILED; then
 		step_skip "dependencies not installed"
+	elif node build/local-cli.mjs --check > /dev/null 2>&1; then
+		# Local 10.2+ ships its own WP-CLI (localwp cli); build/wp.mjs uses it.
+		step_skip "Local CLI found; node build/wp.mjs uses it"
 	elif node build/setup-tools.mjs > /dev/null 2>&1; then
 		step_ok "node build/wp.mjs <wp args>"
 	else

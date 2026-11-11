@@ -64,7 +64,7 @@ npm run scss      # SCSS only
 npm run js        # JS only
 npm run lint      # stylelint + eslint
 npm run validate  # theme.json and styles/*.json against the vendored 7.1 schema
-npm run tools:setup  # one-time: download wp-cli.phar into .tools/ (setup.sh runs it)
+npm run tools:setup  # one-time: download wp-cli.phar into .tools/ (only needed without the Local CLI)
 ```
 
 | Source | Output |
@@ -79,7 +79,7 @@ Keep that table current as entry points are added.
 
 `assets/fonts/` and any images under `assets/` are hand-maintained source. They are not generated, the hook does not block them, and `.gitignore` does not exclude them.
 
-The helper scripts in `build/` that `setup.sh` calls are also source: `fluid-clamp.mjs` (type and spacing scale), `write-tokens.mjs` (palette and schema pin), `install-fonts.mjs` (locally hosted fonts), `contrast.mjs` (WCAG report), `wp.mjs` (WP-CLI wrapper), `setup-tools.mjs` (downloads wp-cli.phar) and `validate-theme-json.mjs` with its vendored schema in `build/schema/`.
+The helper scripts in `build/` that `setup.sh` calls are also source: `fluid-clamp.mjs` (type and spacing scale), `write-tokens.mjs` (palette and schema pin), `install-fonts.mjs` (locally hosted fonts), `contrast.mjs` (WCAG report), `wp.mjs` (WP-CLI wrapper), `local-cli.mjs` (runs Local's `localwp` CLI), `setup-tools.mjs` (downloads the fallback wp-cli.phar) and `validate-theme-json.mjs` with its vendored schema in `build/schema/`.
 
 **Never run `npm audit fix --force`.** It downgrades browser-sync two major versions and destroys the dev server. See README for why the advisories are accepted.
 
@@ -101,10 +101,25 @@ Prefer Playwright for any check against the running site: page content, response
 node build/wp.mjs <wp args>      # e.g. node build/wp.mjs option get home
 ```
 
-`build/wp.mjs` finds the Local site that contains this repo (from `%APPDATA%/Local/sites.json`), reads its PHP version and current MySQL port (the port changes when Local restarts, so it is read on every run), and runs Local's own `php.exe` with that site's `php.ini` against `.tools/wp-cli.phar`. `npm run tools:setup` installs the phar once; `setup.sh` calls it. That is the one download the user approves. `.tools/` is gitignored, and tooling must live there, not in a session scratchpad, which is wiped between sessions. Set `LOCAL_SITE_ID` or `WP_PATH` if the repo is not inside the site folder.
+`build/wp.mjs` finds the Local site that contains this repo (from `%APPDATA%/Local/sites.json`), then runs WP-CLI against it by one of two routes:
 
-- **`wp db query` fails**, because Local's `mysql` client is not on PATH. Use `wp eval` with `$wpdb`: `node build/wp.mjs eval "global \$wpdb; echo \$wpdb->get_var('SELECT COUNT(*) FROM '.\$wpdb->posts);"`
-- PHP prints a `php_imagick.dll` startup warning on every run. It is Local's, and harmless.
+1. **Local CLI (preferred).** Local 10.2+ has a built-in CLI for coding agents, `localwp` ([docs](https://localwp.com/help-docs/advanced/local-cli/)). It is off by default: Local › Preferences › Advanced › **Install Local CLI** › Apply. When it is on, `wp.mjs` runs `localwp cli <site-id> -- <args>`. Local supplies PHP, the MySQL port and WP-CLI, so nothing is downloaded.
+2. **Bundled phar (fallback).** Runs Local's own `php.exe` with the site's `php.ini` and current MySQL port against `.tools/wp-cli.phar`. The port is read on every run because it changes when Local restarts. `npm run tools:setup` installs the phar once. `setup.sh` calls it only when the Local CLI is missing; that is the one download the user approves. `.tools/` is gitignored, and tooling must live there, not in a session scratchpad, which is wiped between sessions.
+
+Set `LOCAL_SITE_ID` or `WP_PATH` if the repo is not inside the site folder. `WP_PATH` forces the phar route, and so does `WP_MJS_PHAR=1`.
+
+For the rest of the Local CLI, use `node build/local-cli.mjs <args>` rather than a bare `localwp`. Local's Windows launcher, `localwp.bat`, fails when Local is installed under `C:\Program Files (x86)` (`\Local\Local.exe was unexpected at this time`), and Git Bash can't run a bare `localwp` anyway. The wrapper runs the same CLI without cmd.
+
+```bash
+node build/local-cli.mjs list --json          # every site: id, status, url, PHP/MySQL versions, paths
+node build/local-cli.mjs info <site> --json   # one site
+node build/local-cli.mjs start <site>         # start a halted site before testing it
+```
+
+`stop`, `new` and destructive `cli` subcommands prompt. Never stop sites you did not start, because other projects share Local.
+
+- **`wp db query` fails** on both routes: the `mysql` client can't reach Local's MySQL. Use `wp eval` with `$wpdb`: `node build/wp.mjs eval "global \$wpdb; echo \$wpdb->get_var('SELECT COUNT(*) FROM '.\$wpdb->posts);"`
+- On the phar route, PHP prints a `php_imagick.dll` startup warning on every run. It is Local's, and harmless. The Local CLI route doesn't print it.
 
 ### Logged-in testing
 

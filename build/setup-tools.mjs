@@ -7,6 +7,10 @@
  * This is the one place the project downloads a tool. Tooling lives in the
  * repo, not in a session scratchpad, because scratchpads are wiped between
  * sessions. Use --force to re-download.
+ *
+ * Not needed when Local's built-in CLI is enabled (Local 10.2+, Preferences >
+ * Advanced > "Install Local CLI"). build/wp.mjs uses that first, and this
+ * phar is only its fallback. setup.sh skips the download when the CLI exists.
  */
 
 import { existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
