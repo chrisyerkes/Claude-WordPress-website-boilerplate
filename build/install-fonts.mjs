@@ -137,21 +137,51 @@ function install({ themeDir, role, pkg, fallback }) {
 	}
 }
 
+/**
+ * Registers a font that Adobe Fonts serves, so nothing is downloaded here.
+ * The entry has no fontFace: the kit stylesheet (enqueued by the theme from
+ * the Web Project ID) defines the @font-face rules, and theme.json only needs
+ * the family name so the font shows up in the Site Editor.
+ */
+function registerAdobe({ themeDir, role, adobe, fallback }) {
+	if (!ROLES.includes(role)) throw new Error(`--role must be one of ${ROLES.join(', ')}`);
+	const label = adobe.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+	const entry = {
+		fontFamily: `'${adobe}', ${fallback}`,
+		name: role === 'heading' ? 'Heading' : 'Body',
+		slug: role,
+	};
+	const themeJson = join(themeDir, 'theme.json');
+	const json = JSON.parse(readFileSync(themeJson, 'utf8'));
+	json.settings.typography ??= {};
+	const families = json.settings.typography.fontFamilies ?? [];
+	const idx = families.findIndex((f) => f.slug === role);
+	if (idx >= 0) families[idx] = entry;
+	else families.push(entry);
+	json.settings.typography.fontFamilies = families;
+	writeFileSync(themeJson, JSON.stringify(json, null, '\t') + '\n');
+	return { label };
+}
+
 function parseArgs(argv) {
-	const out = { themeDir: null, role: null, pkg: null, fallback: 'sans-serif' };
+	const out = { themeDir: null, role: null, pkg: null, adobe: null, fallback: 'sans-serif' };
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
 		if (a === '--theme-dir') out.themeDir = argv[++i];
 		else if (a === '--role') out.role = argv[++i];
 		else if (a === '--package') out.pkg = argv[++i];
+		else if (a === '--adobe') out.adobe = argv[++i];
 		else if (a === '--fallback') out.fallback = argv[++i];
 		else throw new Error(`unknown argument: ${a}`);
 	}
-	if (!out.themeDir || !out.role || !out.pkg) {
-		throw new Error('usage: install-fonts.mjs --theme-dir <dir> --role <heading|body> --package <npm name> [--fallback <stack>]');
+	if (!out.themeDir || !out.role || (!out.pkg && !out.adobe) || (out.pkg && out.adobe)) {
+		throw new Error('usage: install-fonts.mjs --theme-dir <dir> --role <heading|body> (--package <npm name> | --adobe <css name>) [--fallback <stack>]');
 	}
-	if (!/^@fontsource-variable\/[a-z0-9-]+$/.test(out.pkg)) {
+	if (out.pkg && !/^@fontsource-variable\/[a-z0-9-]+$/.test(out.pkg)) {
 		throw new Error(`--package must look like @fontsource-variable/<font>, got '${out.pkg}'`);
+	}
+	if (out.adobe && !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(out.adobe)) {
+		throw new Error(`--adobe must be the font's CSS name in lowercase with hyphens, e.g. proxima-nova, got '${out.adobe}'`);
 	}
 	return out;
 }
@@ -159,6 +189,11 @@ function parseArgs(argv) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
 	try {
 		const opts = parseArgs(process.argv.slice(2));
+		if (opts.adobe) {
+			const r = registerAdobe({ themeDir: opts.themeDir, role: opts.role, adobe: opts.adobe, fallback: opts.fallback });
+			console.log(`${opts.role}: ${r.label} · Adobe Fonts (loaded from your web project)`);
+			process.exit(0);
+		}
 		const r = install({ themeDir: opts.themeDir, role: opts.role, pkg: opts.pkg, fallback: opts.fallback });
 		console.log(`${opts.role}: ${r.family} · ${r.files} Latin files · ${r.faces} faces · weights ${r.weights}`);
 	} catch (err) {

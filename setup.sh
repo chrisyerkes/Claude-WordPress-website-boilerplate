@@ -373,6 +373,41 @@ SD=$'\001'
 esc_pat() { printf '%s' "$1" | sed -e 's/[][\.*^$]/\\&/g'; }
 esc_rep() { printf '%s' "$1" | sed -e 's/[\\&]/\\&/g'; }
 
+# ── Escaping free text for the language it lands in ──────────────────────
+#
+# Names, descriptions and author strings are typed by a person and may hold
+# an apostrophe ("FML CPA's"), a quote, a backslash or an ampersand. Each one
+# is written into PHP, JSON, JS, HTML and comments, and each needs its own
+# escaping or the generated file stops parsing. Always pass the raw value
+# through the function for the context it is about to enter.
+
+# Drops control characters, turns tabs into spaces and trims the ends.
+clean_text() {
+	local s
+	s=$(printf '%s' "$1" | tr '\t' ' ' | tr -d '\000-\037\177')
+	s="${s#"${s%%[![:space:]]*}"}"
+	s="${s%"${s##*[![:space:]]}"}"
+	printf '%s' "$s"
+}
+
+# Inside a PHP single-quoted string: ' and \ need a backslash.
+esc_php() { printf '%s' "$1" | sed -e 's/[\\'"'"']/\\&/g'; }
+
+# Inside a JSON string.
+esc_json() { printf '%s' "$1" | sed -e 's/[\\"]/\\&/g'; }
+
+# Inside a JS string of either quote style, or a template literal.
+esc_js() { printf '%s' "$1" | sed -e 's/[\\'"'"'"`$]/\\&/g'; }
+
+# Inside HTML text or an attribute.
+esc_html() {
+	printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' \
+		-e 's/"/\&quot;/g' -e "s/'/\&#039;/g"
+}
+
+# Inside a /* */ or // comment: only the closing token is dangerous.
+esc_comment() { printf '%s' "$1" | sed -e 's#\*/#* /#g'; }
+
 # ══════════════════════════════════════════════════════════════════════════
 #  sed portability
 # ══════════════════════════════════════════════════════════════════════════
@@ -516,8 +551,10 @@ v_slug()     { [[ "$1" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; }
 v_port()     { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1024 && $1 <= 65535 )); }
 v_px()       { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 320 && $1 <= 3840 )); }
 v_hex_opt()  { [[ -z "$1" ]] || [[ "$1" =~ ^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$ ]]; }
-v_url()      { [[ "$1" =~ ^https?://[^[:space:]]+$ ]]; }
-v_uri_opt()  { [[ -z "$1" ]] || [[ "$1" =~ ^https?://[^[:space:]]+$ ]]; }
+# URLs are written inside quoted strings in JS and PHP comments, so quotes,
+# backslashes, backticks, angle brackets and $ are refused outright.
+v_url()      { [[ "$1" =~ ^https?://[^[:space:]]+$ ]] && [[ "$1" != *[\'\"\`\\\<\>\$]* ]]; }
+v_uri_opt()  { [[ -z "$1" ]] || v_url "$1"; }
 
 normalize_hex() {
 	local h="$1"
@@ -557,9 +594,29 @@ HINT_WP="Use major.minor, for example 7.0."
 HINT_HEX_REQ="A hex color like #7ec8e3 or 7ec8e3."
 HINT_ACCENT_SLUG="Lowercase letters, numbers and hyphens, not already used and not a palette name such as primary."
 HINT_FONT="A Fontsource name in lowercase, e.g. fraunces or dm-sans. Leave blank for a system font."
+HINT_ADOBE_FONT="The font's CSS name from Adobe Fonts, lowercase with hyphens, e.g. proxima-nova or freight-text-pro."
+HINT_ADOBE_KIT="The Web Project ID from fonts.adobe.com (letters and digits, e.g. abc1def)."
+HINT_FONT_SOURCE="Use fontsource or adobe."
+
+FONT_SOURCE_OPTIONS=(
+	"System font (no download)"
+	"Fontsource: self-hosted from the theme (recommended)"
+	"Adobe Fonts: loaded from your Adobe web project"
+)
 
 v_wp_version() { [[ "$1" =~ ^[0-9]+\.[0-9]+$ ]]; }
 v_font_opt()   { [[ -z "$1" ]] || [[ "$1" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; }
+v_adobe_kit()  { [[ "$1" =~ ^[a-zA-Z0-9]{5,16}$ ]]; }
+
+# Source label (or short token) to fontsource|adobe|system.
+font_source_token() {
+	case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+		system*|none) printf 'system' ;;
+		fontsource*)  printf 'fontsource' ;;
+		adobe*|typekit) printf 'adobe' ;;
+		*) return 1 ;;
+	esac
+}
 v_hex_req()    { [[ -n "$1" ]] && v_hex_opt "$1"; }
 
 # Accent slugs must be new and must not reuse a palette slot.
@@ -661,15 +718,21 @@ process.stdout.write((j.settings?.color?.palette ?? []).map((c) => c.slug).join(
 FONT_NOTES=()
 FONT_PROBLEMS=()
 
-# install_font <heading|body> <fontsource name> <fallback stack>
+# install_font <heading|body> <fontsource|adobe> <name> <fallback stack>
 install_font() {
-	local role="$1" name="$2" fallback="$3" out
+	local role="$1" source="$2" name="$3" fallback="$4" out
+	local -a args
 	if ! $HAVE_NODE; then
 		FONT_PROBLEMS+=("${role}: Node is needed to install ${name}. Add the font by hand, see README.md.")
 		return 0
 	fi
+	if [[ "$source" == "adobe" ]]; then
+		args=(--adobe "$name")
+	else
+		args=(--package "@fontsource-variable/${name}")
+	fi
 	if out=$(node build/install-fonts.mjs --theme-dir "$THEME_DIR" --role "$role" \
-		--package "@fontsource-variable/${name}" --fallback "$fallback" 2>&1); then
+		"${args[@]}" --fallback "$fallback" 2>&1); then
 		FONT_NOTES+=("$out")
 	else
 		FONT_PROBLEMS+=("${role}: ${name} was not installed. ${out}")
@@ -814,6 +877,8 @@ show_help() {
       BROWSERSYNC_PORT  USE_ACF  CREATE_PLUGIN  PLUGIN_SLUG
       DATA_STRATEGY  SCAFFOLD_BINDINGS  SCAFFOLD_ABILITY
       WP_VERSION  HEADING_FONT  BODY_FONT
+      HEADING_FONT_SOURCE  BODY_FONT_SOURCE  (fontsource, the default, or adobe)
+      ADOBE_KIT_ID  (Adobe Fonts Web Project ID, needed when a source is adobe)
       PRIMARY_COLOR  PRIMARY_NAME  SECONDARY_COLOR  SECONDARY_NAME
       TERTIARY_COLOR  TERTIARY_NAME  OFF_WHITE  DERIVE_SHADES
       ACCENT  (repeatable: ACCENT = slug | #hex | Name)
@@ -823,7 +888,9 @@ show_help() {
     Yes/no keys take y/yes/true/1 or n/no/false/0. DATA_STRATEGY takes
     bindings, acf or per-component. Every value is checked before anything
     is written; if any is invalid, all problems are listed and the script
-    exits with status 2. There is no review screen, and progress is printed
+    exits with status 2. Names, descriptions and author text may contain
+    apostrophes, quotes, backslashes and ampersands; each is escaped for the
+    PHP, JSON, JS or comment it lands in. There is no review screen, and progress is printed
     as one plain line per step:
       [n/total] <label> ... done (<detail>)
     README.md has a complete example file.
@@ -1156,6 +1223,7 @@ PRIMARY_COLOR=""; PRIMARY_NAME=""; SECONDARY_COLOR=""; SECONDARY_NAME=""
 TERTIARY_COLOR=""; TERTIARY_NAME=""; OFF_WHITE=""; DERIVE_SHADES="false"
 ACCENT_LINES=(); ACCENT_RAW=()
 HEADING_FONT=""; BODY_FONT=""
+HEADING_FONT_SOURCE=""; BODY_FONT_SOURCE=""; ADOBE_KIT_ID=""
 VIEWPORT_MIN=""; VIEWPORT_MAX=""
 CONTENT_WIDTH=""; WIDE_WIDTH=""
 INSTALL_DEPS=""; REMOVE_SCRIPT=""
@@ -1363,11 +1431,49 @@ step_colors() {
 
 step_fonts() {
 	print_section "Fonts"
-	print_info "Optional. Variable fonts from Fontsource (fontsource.org) are downloaded once and served"
-	print_info "from the theme, so visitors make no third-party font request. Blank keeps the system font."
+	print_info "Optional. Each font can be the system font, a Fontsource font (downloaded once and served"
+	print_info "from the theme, no third-party request), or an Adobe Fonts font (loaded from your Adobe"
+	print_info "web project, so it needs your Web Project ID from fonts.adobe.com)."
 	echo ""
-	prompt "Heading font" "${HEADING_FONT:-}" HEADING_FONT v_font_opt "$HINT_FONT" || return $?
-	prompt "Body font"    "${BODY_FONT:-}"    BODY_FONT    v_font_opt "$HINT_FONT" || return $?
+	pick_font heading HEADING_FONT HEADING_FONT_SOURCE || return $?
+	pick_font body BODY_FONT BODY_FONT_SOURCE || return $?
+
+	if [[ "$HEADING_FONT_SOURCE" == "adobe" || "$BODY_FONT_SOURCE" == "adobe" ]]; then
+		echo ""
+		print_info "Adobe Fonts: the Web Project ID is the code in your project's embed link,"
+		print_info "https://use.typekit.net/<ID>.css. The project must list the fonts chosen above."
+		prompt "Adobe Web Project ID" "${ADOBE_KIT_ID:-}" ADOBE_KIT_ID v_adobe_kit "$HINT_ADOBE_KIT" || return $?
+	else
+		ADOBE_KIT_ID=""
+	fi
+	return 0
+}
+
+# pick_font <heading|body> <name var> <source var>
+pick_font() {
+	local role="$1" name_var="$2" src_var="$3" label
+	label="$(titlecase "$role") font"
+	local current_label="${FONT_SOURCE_OPTIONS[0]}" current_src="${!src_var:-}"
+	case "$current_src" in
+		fontsource) current_label="${FONT_SOURCE_OPTIONS[1]}" ;;
+		adobe)      current_label="${FONT_SOURCE_OPTIONS[2]}" ;;
+	esac
+	local choice="$current_label"
+	prompt_select "${label}: where does it come from?" choice "${FONT_SOURCE_OPTIONS[@]}" || return $?
+	printf -v "$src_var" '%s' "$(font_source_token "$choice")"
+	case "${!src_var}" in
+		system)
+			printf -v "$name_var" '%s' ""
+			;;
+		fontsource)
+			prompt "${label} (Fontsource name)" "${!name_var:-}" "$name_var" v_font_opt "$HINT_FONT" || return $?
+			if [[ -z "${!name_var}" ]]; then printf -v "$src_var" '%s' "system"; fi
+			;;
+		adobe)
+			prompt "${label} (Adobe CSS name)" "${!name_var:-}" "$name_var" v_font_opt "$HINT_ADOBE_FONT" || return $?
+			if [[ -z "${!name_var}" ]]; then printf -v "$src_var" '%s' "system"; fi
+			;;
+	esac
 	return 0
 }
 
@@ -1433,7 +1539,12 @@ step_review() {
 	printf '  Off-white:     %s%s%s\n' "$BOLD" "${OFF_WHITE:-—}" "$RESET"
 	printf '  Accents:       %s%s%s\n' "$BOLD" "$(( ${#ACCENT_LINES[@]} )) entered" "$RESET"
 	printf '  Derive shades: %s%s%s\n' "$BOLD" "$([[ "$DERIVE_SHADES" == "true" ]] && echo Yes || echo No)" "$RESET"
-	printf '  Fonts:         %sheading %s · body %s%s\n' "$BOLD" "${HEADING_FONT:-system}" "${BODY_FONT:-system}" "$RESET"
+	printf '  Fonts:         %sheading %s · body %s%s\n' "$BOLD" \
+		"${HEADING_FONT:-system}${HEADING_FONT:+ ($HEADING_FONT_SOURCE)}" \
+		"${BODY_FONT:-system}${BODY_FONT:+ ($BODY_FONT_SOURCE)}" "$RESET"
+	if [[ -n "$ADOBE_KIT_ID" ]]; then
+		printf '  Adobe project: %s%s%s\n' "$BOLD" "$ADOBE_KIT_ID" "$RESET"
+	fi
 	printf '  Type scale:    %s%s–%spx viewport%s\n' "$BOLD" "$VIEWPORT_MIN" "$VIEWPORT_MAX" "$RESET"
 	printf '  Widths:        %scontent %spx · wide %spx%s\n' "$BOLD" "$CONTENT_WIDTH" "$WIDE_WIDTH" "$RESET"
 	printf '  Git init:      %s%s%s\n' "$BOLD" "$([[ "$INIT_GIT" == "true" ]] && echo Yes || echo No)" "$RESET"
@@ -1512,7 +1623,7 @@ ANSWER_KEYS=(
 	WP_VERSION
 	PRIMARY_COLOR PRIMARY_NAME SECONDARY_COLOR SECONDARY_NAME
 	TERTIARY_COLOR TERTIARY_NAME OFF_WHITE ACCENT DERIVE_SHADES
-	HEADING_FONT BODY_FONT
+	HEADING_FONT HEADING_FONT_SOURCE BODY_FONT BODY_FONT_SOURCE ADOBE_KIT_ID
 	VIEWPORT_MIN VIEWPORT_MAX CONTENT_WIDTH WIDE_WIDTH
 	INSTALL_DEPS INIT_GIT REMOVE_SCRIPT
 )
@@ -1709,10 +1820,41 @@ load_answers() {
 
 	bool_answer DERIVE_SHADES false
 
-	HEADING_FONT=$(answer HEADING_FONT "")
-	check HEADING_FONT v_font_opt "$HINT_FONT"
-	BODY_FONT=$(answer BODY_FONT "")
-	check BODY_FONT v_font_opt "$HINT_FONT"
+	# Each role: HEADING_FONT is the name; HEADING_FONT_SOURCE is fontsource
+	# (the default when a name is given) or adobe.
+	local role_up role_name role_src_key raw_src tok
+	for role_up in HEADING BODY; do
+		role_name="${role_up}_FONT"
+		role_src_key="${role_up}_FONT_SOURCE"
+		printf -v "$role_name" '%s' "$(answer "$role_name" "")"
+		raw_src=$(answer "$role_src_key" "fontsource")
+		if [[ -z "${!role_name}" ]]; then
+			printf -v "$role_src_key" '%s' ""
+			if supplied "$role_src_key"; then
+				ANSWER_NOTES+=("${role_src_key} ignored: ${role_name} is blank, so the system font is used.")
+			fi
+			continue
+		fi
+		if tok=$(font_source_token "$raw_src") && [[ "$tok" != "system" ]]; then
+			printf -v "$role_src_key" '%s' "$tok"
+		else
+			printf -v "$role_src_key" '%s' "$raw_src"
+			bad "$role_src_key" "$HINT_FONT_SOURCE"
+			continue
+		fi
+		if [[ "$tok" == "adobe" ]]; then
+			check "$role_name" v_font_opt "$HINT_ADOBE_FONT"
+		else
+			check "$role_name" v_font_opt "$HINT_FONT"
+		fi
+	done
+	ADOBE_KIT_ID=$(answer ADOBE_KIT_ID "")
+	if [[ "$HEADING_FONT_SOURCE" == "adobe" || "$BODY_FONT_SOURCE" == "adobe" ]]; then
+		if ! v_adobe_kit "$ADOBE_KIT_ID"; then bad ADOBE_KIT_ID "$HINT_ADOBE_KIT"; fi
+	elif [[ -n "$ADOBE_KIT_ID" ]]; then
+		ANSWER_NOTES+=("ADOBE_KIT_ID ignored: no font uses Adobe Fonts.")
+		ADOBE_KIT_ID=""
+	fi
 
 	VIEWPORT_MIN=$(answer VIEWPORT_MIN 375)
 	check VIEWPORT_MIN v_px "$HINT_PX"
@@ -1787,6 +1929,19 @@ fi
 #  Derived values
 # ══════════════════════════════════════════════════════════════════════════
 
+# Free text is normalised once, here, so every writer below sees the same
+# value: no control characters, no stray spaces. Escaping for a particular
+# file type happens at the point of writing (see esc_php, esc_json, ...).
+PROJECT_NAME=$(clean_text "$PROJECT_NAME")
+THEME_NAME=$(clean_text "$THEME_NAME")
+THEME_DESCRIPTION=$(clean_text "$THEME_DESCRIPTION")
+AUTHOR_NAME=$(clean_text "$AUTHOR_NAME")
+AUTHOR_URI=$(clean_text "$AUTHOR_URI")
+# | separates fields in the palette file that write-tokens.mjs reads.
+PRIMARY_NAME=$(clean_text "${PRIMARY_NAME//|/-}")
+SECONDARY_NAME=$(clean_text "${SECONDARY_NAME//|/-}")
+TERTIARY_NAME=$(clean_text "${TERTIARY_NAME//|/-}")
+
 THEME_DIR="themes/${THEME_SLUG}"
 THEME_JSON="${THEME_DIR}/theme.json"
 VARS_SCSS="${THEME_DIR}/src/scss/abstracts/_variables.scss"
@@ -1813,6 +1968,7 @@ plan                                                  # package.json
 plan                                                  # dev server config
 plan                                                  # design tokens
 if [[ -n "$HEADING_FONT" || -n "$BODY_FONT" ]]; then plan; fi   # install fonts
+if [[ -n "$ADOBE_KIT_ID" ]]; then plan; fi                       # Adobe Fonts project ID
 plan                                                  # Claude Code config
 if [[ "$CREATE_PLUGIN" == "true" ]]; then
 	plan                                              # scaffold plugin
@@ -1873,9 +2029,55 @@ that you have write access to everything under:
 On Windows, Dropbox and OneDrive can briefly lock files mid-sync — wait for
 the sync to finish and try again on a fresh copy."
 
-SED_EXPRS=()
+# The expressions are built in three groups: everything before the display
+# name ("Starter") is replaced, the display name itself (which differs per
+# file type, because it is free text), and the broad sweep after it.
+# Each starts with a comment-only expression so it is never empty (an empty
+# array expands to an unbound variable under `set -u` on older bash).
+SED_PRE=(-e "# pre")
+SED_POST=(-e "# post")
+NAME_EXPRS_PHP=(-e "# name"); NAME_EXPRS_JSON=(-e "# name"); NAME_EXPRS_JS=(-e "# name")
+NAME_EXPRS_HTML=(-e "# name"); NAME_EXPRS_RAW=(-e "# name")
+SED_TARGET=pre
+SED_COUNT=0
 add_replace() {
-	SED_EXPRS+=(-e "s${SD}$(esc_pat "$1")${SD}$(esc_rep "$2")${SD}g")
+	local expr=(-e "s${SD}$(esc_pat "$1")${SD}$(esc_rep "$2")${SD}g")
+	if [[ "$SED_TARGET" == "post" ]]; then SED_POST+=("${expr[@]}"); else SED_PRE+=("${expr[@]}"); fi
+	SED_COUNT=$(( SED_COUNT + 1 ))
+	return 0
+}
+
+# One "Starter" -> display-name expression set per kind of file, each
+# escaping the name for that language. PHP comment lines (starting with * or
+# /) get the plain name, since a backslash there would show up in the docblock.
+set_name_exprs() {
+	local raw="$1" one
+	one() { printf '%s' "s${SD}Starter${SD}$(esc_rep "$1")${SD}g"; }
+	NAME_EXPRS_PHP=(
+		-e "/^[[:space:]]*[*/]/{"
+		-e "$(one "$(esc_comment "$raw")")"
+		-e "b"
+		-e "}"
+		-e "$(one "$(esc_php "$raw")")"
+	)
+	NAME_EXPRS_JSON=(-e "$(one "$(esc_json "$raw")")")
+	NAME_EXPRS_JS=(-e "$(one "$(esc_js "$raw")")")
+	NAME_EXPRS_HTML=(-e "$(one "$(esc_html "$raw")")")
+	NAME_EXPRS_RAW=(-e "$(one "$raw")")
+	unset -f one
+	return 0
+}
+
+# Returns the sed expression list for one file via the global SED_FOR_FILE.
+sed_exprs_for() {
+	local f="$1"
+	case "$f" in
+		*.php)         SED_FOR_FILE=( "${SED_PRE[@]}" "${NAME_EXPRS_PHP[@]}"  "${SED_POST[@]}" ) ;;
+		*.json)        SED_FOR_FILE=( "${SED_PRE[@]}" "${NAME_EXPRS_JSON[@]}" "${SED_POST[@]}" ) ;;
+		*.js|*.mjs)    SED_FOR_FILE=( "${SED_PRE[@]}" "${NAME_EXPRS_JS[@]}"   "${SED_POST[@]}" ) ;;
+		*.html)        SED_FOR_FILE=( "${SED_PRE[@]}" "${NAME_EXPRS_HTML[@]}" "${SED_POST[@]}" ) ;;
+		*)             SED_FOR_FILE=( "${SED_PRE[@]}" "${NAME_EXPRS_RAW[@]}"  "${SED_POST[@]}" ) ;;
+	esac
 	return 0
 }
 
@@ -1908,11 +2110,15 @@ if [[ "$THEME_SLUG" != "starter" ]]; then
 fi
 
 # 5. Capitalized references: @package Starter, "Starter Components", etc.
+#    The display name is free text, so it is escaped per file type (see
+#    set_name_exprs) instead of being passed through add_replace as-is.
 if [[ "$THEME_NAME" != "Starter" ]]; then
-	add_replace "Starter" "$THEME_NAME"
+	set_name_exprs "$THEME_NAME"
+	SED_COUNT=$(( SED_COUNT + 1 ))
 fi
 
 # 6. Broad sweep last, for anything still unqualified.
+SED_TARGET=post
 if [[ "$TEXT_DOMAIN" != "starter" ]]; then
 	add_replace "starter" "$TEXT_DOMAIN"
 elif [[ "$THEME_SLUG" != "starter" ]]; then
@@ -1923,7 +2129,7 @@ fi
 # node_modules/.git/vendor at all — the difference between a sub-second scan
 # and a multi-minute one.
 TARGET_FILES=()
-if (( ${#SED_EXPRS[@]} > 0 )); then
+if (( SED_COUNT > 0 )); then
 	while IFS= read -r -d '' f; do
 		TARGET_FILES+=("$f")
 	done < <(find . \
@@ -1950,7 +2156,8 @@ if (( TOTAL_FILES > 0 )); then
 		# Only touch files that actually mention "starter" — keeps mtimes
 		# stable across the rest of the tree.
 		if grep -qi 'starter' "$f" 2>/dev/null; then
-			if do_sed "${SED_EXPRS[@]}" "$f" 2>/dev/null; then
+			sed_exprs_for "$f"
+			if do_sed "${SED_FOR_FILE[@]}" "$f" 2>/dev/null; then
 				REPLACED_COUNT=$(( REPLACED_COUNT + 1 ))
 			else
 				print_warn "Could not rewrite ${f} — skipped. Check its permissions."
@@ -1977,11 +2184,13 @@ Check the file is not read-only and that the theme directory exists."
 if ! $DRY_RUN; then
 	{
 		printf '/*\n'
-		printf 'Theme Name: %s\n'  "$THEME_NAME"
+		# Header values are read by WordPress as plain text, so apostrophes and
+		# quotes stay as typed. Only a closing comment token is neutralised.
+		printf 'Theme Name: %s\n'  "$(esc_comment "$THEME_NAME")"
 		printf 'Theme URI:\n'
-		printf 'Author: %s\n'      "$AUTHOR_NAME"
+		printf 'Author: %s\n'      "$(esc_comment "$AUTHOR_NAME")"
 		printf 'Author URI: %s\n'  "$AUTHOR_URI"
-		printf 'Description: %s\n' "$THEME_DESCRIPTION"
+		printf 'Description: %s\n' "$(esc_comment "$THEME_DESCRIPTION")"
 		printf 'Version: 1.0.0\n'
 		printf 'Requires at least: 7.0\n'
 		printf 'Tested up to: %s\n' "$WP_VERSION"
@@ -2007,7 +2216,7 @@ pristine boilerplate and re-run setup.sh."
 if ! $DRY_RUN; then
 	do_sed \
 		-e "s${SD}\"name\": \"[^\"]*\"${SD}$(esc_rep "\"name\": \"${THEME_SLUG}-build\"")${SD}" \
-		-e "s${SD}\"description\": \"[^\"]*\"${SD}$(esc_rep "\"description\": \"Build tooling for ${THEME_NAME}\"")${SD}" \
+		-e "s${SD}\"description\": \"[^\"]*\"${SD}$(esc_rep "\"description\": \"Build tooling for $(esc_json "$THEME_NAME")\"")${SD}" \
 		package.json
 	MUTATED=true
 	# A malformed package.json is a confusing failure three steps later, at
@@ -2148,8 +2357,8 @@ install by hand, for example:
   node build/install-fonts.mjs --theme-dir themes/${THEME_SLUG} --role heading --package @fontsource-variable/<name> --fallback \"Georgia, serif\""
 
 	if ! $DRY_RUN; then
-		if [[ -n "$HEADING_FONT" ]]; then install_font heading "$HEADING_FONT" "$FALLBACK_HEADING"; fi
-		if [[ -n "$BODY_FONT" ]];    then install_font body "$BODY_FONT" "$FALLBACK_BODY"; fi
+		if [[ -n "$HEADING_FONT" ]]; then install_font heading "${HEADING_FONT_SOURCE:-fontsource}" "$HEADING_FONT" "$FALLBACK_HEADING"; fi
+		if [[ -n "$BODY_FONT" ]];    then install_font body "${BODY_FONT_SOURCE:-fontsource}" "$BODY_FONT" "$FALLBACK_BODY"; fi
 		MUTATED=true
 		if (( ${#FONT_PROBLEMS[@]} > 0 )); then
 			step_warn "${FONT_PROBLEMS[0]}"
@@ -2157,6 +2366,26 @@ install by hand, for example:
 		else
 			step_ok "${FONT_NOTES[0]:-fonts installed}"
 			for n in "${FONT_NOTES[@]:1}"; do print_ok "$n"; done
+		fi
+	else
+		step_ok
+	fi
+fi
+
+if [[ -n "$ADOBE_KIT_ID" ]]; then
+	step_start "Connecting Adobe Fonts"
+	set_context "writing the Adobe Fonts project ID" \
+"Could not update ${THEME_DIR}/inc/enqueue.php. Open it and set the return
+value of ${FUNC_PREFIX}adobe_fonts_kit_id() to '${ADOBE_KIT_ID}'."
+	if ! $DRY_RUN; then
+		# The ID is validated as letters and digits, so it is safe in a PHP string.
+		do_sed -e "s${SD}return '';[[:space:]]*// ADOBE_KIT_ID${SD}return '${ADOBE_KIT_ID}'; // ADOBE_KIT_ID${SD}" \
+			"${THEME_DIR}/inc/enqueue.php"
+		if ! grep -q "return '${ADOBE_KIT_ID}'; // ADOBE_KIT_ID" "${THEME_DIR}/inc/enqueue.php"; then
+			step_warn "marker not found in enqueue.php; set the project ID by hand"
+		else
+			MUTATED=true
+			step_ok "project ${ADOBE_KIT_ID} → https://use.typekit.net/${ADOBE_KIT_ID}.css"
 		fi
 	else
 		step_ok
@@ -2279,9 +2508,9 @@ require_once ${PLUGIN_CONST}_PATH . 'includes/abilities.php';"
 <?php
 /**
  * Plugin Name: ${PLUGIN_TITLE}
- * Description: Data layer and custom functionality for the ${THEME_NAME} theme.
+ * Description: Data layer and custom functionality for the $(esc_comment "$THEME_NAME") theme.
  * Version: 1.0.0
- * Author: ${AUTHOR_NAME}
+ * Author: $(esc_comment "$AUTHOR_NAME")
  * Author URI: ${AUTHOR_URI}
  * Text Domain: ${PLUGIN_SLUG}
  * Requires at least: 6.7
@@ -2446,7 +2675,7 @@ if ( ! function_exists( 'acf_add_options_page' ) ) {
  */
 function ${PLUGIN_PREFIX}_register_options_pages() {
 	acf_add_options_page( array(
-		'page_title' => '${THEME_NAME} Settings',
+		'page_title' => '$(esc_php "$THEME_NAME") Settings',
 		'menu_title' => 'Site Settings',
 		'menu_slug'  => '${PLUGIN_PREFIX}-settings',
 		'capability' => 'manage_options',
