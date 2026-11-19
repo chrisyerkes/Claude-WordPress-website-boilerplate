@@ -18,6 +18,7 @@ require_once get_template_directory() . '/inc/enqueue.php';
 require_once get_template_directory() . '/inc/helpers.php';
 require_once get_template_directory() . '/inc/icons.php';
 require_once get_template_directory() . '/inc/blocks.php';
+require_once get_template_directory() . '/inc/adobe-fonts.php';
 
 /**
  * Register block pattern categories.

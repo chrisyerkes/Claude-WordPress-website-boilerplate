@@ -67,7 +67,7 @@ The script will walk you through:
 - **Companion plugin scaffolding** (optional, creates a full plugin skeleton)
 - **WordPress version**, read from `../wp-includes/version.php` when core is present, so the `theme.json` schema is pinned to the release you are building against. You are only asked when core is not found.
 - **Primary, secondary and tertiary brand colors**, each with an optional name (`Primary · Slate Teal` in the editor). Also an optional off-white, any number of named accents, and an opt-in to derive `primary-dark`, `primary-light` and `secondary-dark`. Each color's WCAG contrast against white and black is printed; a color under 4.5:1 is flagged as decorative or large-text only. The check reports and never blocks.
-- **Heading and body fonts** (optional). Each is the system font, a Fontsource font, or an Adobe Fonts font. Fontsource fonts are downloaded once into `themes/<slug>/assets/fonts/`, so visitors make no third-party font request. For Adobe Fonts, give the font's CSS name and your Web Project ID. The theme then loads `https://use.typekit.net/<ID>.css` on the front end and in the editor (a third-party request, with preconnect hints), and `theme.json` lists the family so it appears in the Site Editor. The font must be added to that Adobe project.
+- **Heading and body fonts** (optional). Each is the system font, a Fontsource font, or an Adobe Fonts font. Fontsource fonts are downloaded once into `themes/<slug>/assets/fonts/`, so visitors make no third-party font request. For Adobe Fonts, give the font's CSS name and your Web Project ID. The theme then loads `https://use.typekit.net/<ID>.css` on the front end and in the editor (a third-party request, with preconnect hints), and `theme.json` lists the family so it appears in the Site Editor. The font must be added to that Adobe project. Each role is chosen separately, so the heading can be an Adobe font while the body is a self-hosted Fontsource font. The ID is only asked for when a font uses Adobe. It becomes the default in `inc/adobe-fonts.php`, which adds **Appearance › Adobe Fonts** where the site owner can paste any embed code (only the project ID is stored), see which families and weights the project contains, and preview them. Define `ADOBE_FONTS_PROJECT_ID` in `wp-config.php` to override it on one install. Without an Adobe font, setup removes that file.
 - **Special characters.** Theme names, descriptions and author text can contain apostrophes, quotes, backslashes and ampersands (`FML CPA's`). Setup escapes each value for the PHP, JSON, JS or comment it is written into.
 - **Content and wide layout widths**, and the smallest and largest viewport for the fluid type and spacing scale
 - **npm install + initial build**
@@ -305,8 +305,8 @@ node build/contrast.mjs primary=#1a3a5c secondary=#c0392b    # WCAG ratios on wh
 
 **The type and spacing scale** is defined once, in `build/fluid-clamp.mjs`, as min and max sizes in px. It becomes two labelled sets:
 
-- **Font sizes:** eight fluid sizes, `small` to `colossal`, each with `fluid: { min, max }` in rem and a name such as `Fluid · Medium (16 → 18px)`. Then ten fixed sizes, `fixed-14` to `fixed-60`, named `Fixed · 16px`. WordPress computes the fluid clamp from `settings.typography.fluid`, which `setup.sh` sets from the viewport range you enter.
-- **Spacing:** the original slugs `xs`, `s`, `m`, `l`, `xl`, `2-xl`, `3-xl` now hold `clamp()` values across the same viewport range, so templates and patterns did not need to change. Then nine fixed steps, `fixed-4` to `fixed-96`.
+- **Font sizes:** eight fluid sizes, `small` to `colossal`, each with `fluid: { min, max }` in rem and a name such as `Fluid · Medium (16 → 18px)`. Then sixteen static sizes, `fixed-12` to `fixed-72`, named `Static · 16px`. An optional role can be added to a fluid size in `build/fluid-clamp.mjs`, giving names like `Fluid · Colossal (40 → 60px) · H1 · H2`. WordPress computes the fluid clamp from `settings.typography.fluid`, which `setup.sh` sets from the viewport range you enter.
+- **Spacing:** the original slugs `xs`, `s`, `m`, `l`, `xl`, `2-xl`, `3-xl` now hold `clamp()` values across the same viewport range, so templates and patterns did not need to change. Then thirteen static steps, `fixed-4` to `fixed-128`, named `Static · 16px`.
 
 To change a size, edit the table in `build/fluid-clamp.mjs`, then run the `--write` command.
 
@@ -389,3 +389,8 @@ Both stay quiet when a linter is not installed, so a fresh clone before `npm ins
 `/verify-build`, `/new-block`, `/new-pattern` and `/escalate`. `new-block` deliberately opens by trying to talk you out of building a block — with Block Bindings in WordPress 7.0, a large share of what used to need an ACF block no longer does.
 
 Claude is encouraged to expand on this foundation as the project requires.
+
+## Images and media
+
+- `node build/optimize-images.mjs <file...> --out <dir> [--width <px>]` optimizes theme images: JPG (mozjpeg) or PNG (palette) plus a WebP sibling that is dropped when it is not smaller, and SVGs through SVGO. Use `--width` at 2× the CSS display width for retina screens. `sharp` and `svgo` come with `npm install`; `setup.sh` does not need them. Rules are in `.claude/rules/media.md`.
+- When a companion plugin is created, it includes `includes/svg-uploads.php` (SVG uploads, sanitized on upload) and `includes/webp.php` (WebP siblings and `<picture>` output for Media Library images; `wp <theme-slug>-webp generate` backfills older uploads). The theme's `picture.<theme-slug>-webp` rule keeps layout unchanged. The PHP comes from `build/templates/plugin/`.

@@ -44,8 +44,8 @@ Form borders and other non-text UI use `primary`, which clears the 3:1 floor for
 
 Two labelled sets, fluid first, then fixed. The values come from `build/fluid-clamp.mjs`, which is the only place the sizes are defined.
 
-- **Font sizes.** Fluid slugs `small` through `colossal`, each with `fluid: { min, max }` in rem. WordPress computes the clamp from `settings.typography.fluid`. Names show the range in px, e.g. `Fluid · Medium (16 → 18px)`. Fixed slugs `fixed-14` to `fixed-60` with `fluid: false`, e.g. `Fixed · 16px`.
-- **Spacing.** Fluid slugs keep the original names `xs`, `s`, `m`, `l`, `xl`, `2-xl`, `3-xl`, so templates and patterns do not break. Their values are `clamp()` expressions across the viewport range. WordPress does not compute spacing clamps, so they are written out. Fixed slugs `fixed-4` to `fixed-96`.
+- **Font sizes.** Fluid slugs `small` through `colossal`, each with `fluid: { min, max }` in rem. WordPress computes the clamp from `settings.typography.fluid`. Names show the range in px and, where one is set, the role, e.g. `Fluid · Medium (16 → 18px)` or `Fluid · Colossal (40 → 60px) · H1 · H2`. The optional fifth column of `FLUID_FONT_SIZES` is the role. Static slugs `fixed-12` to `fixed-72` with `fluid: false`, labelled `Static · 16px` (the slugs keep the `fixed-` prefix). `MIN_FONT_SIZE_PX` (12) is the fluid floor.
+- **Spacing.** Fluid slugs keep the original names `xs`, `s`, `m`, `l`, `xl`, `2-xl`, `3-xl`, so templates and patterns do not break. Their values are `clamp()` expressions across the viewport range. WordPress does not compute spacing clamps, so they are written out. Static slugs `fixed-4` to `fixed-128`, labelled `Static · 16px`.
 - `defaultFontSizes` and `defaultSpacingSizes` stay `false`, and `spacingScale.steps` stays `0`.
 
 To change a size, edit the table in `build/fluid-clamp.mjs` and regenerate:

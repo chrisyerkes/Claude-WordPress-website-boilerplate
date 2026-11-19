@@ -1,15 +1,22 @@
 // ==========================================================================
 // Typography
 // ==========================================================================
-// Base typographic styles. Heading sizes and font families are set in
-// theme.json and should not be duplicated here unless overriding.
+// Base typographic styles. Sizes, weights, families and colours are set in
+// theme.json and are not duplicated here. This file holds what theme.json
+// cannot express: text wrapping, and the link underline treatment.
 
 p {
 	margin-block: 0 1em;
+	text-wrap: pretty;
 
 	&:last-child {
 		margin-block-end: 0;
 	}
+}
+
+// Balanced wrapping keeps short headings from leaving a one-word last line.
+:where(h1, h2, h3, h4, h5, h6) {
+	text-wrap: balance;
 }
 
 strong,
@@ -17,15 +24,35 @@ b {
 	font-weight: 700;
 }
 
-// Prevent long URLs from breaking layouts.
-// overflow-wrap, not the deprecated `word-break: break-word`.
-a {
-	overflow-wrap: break-word;
+// --------------------------------------------------------------------------
+// Links
+// --------------------------------------------------------------------------
+// Text links are a plain underline in the text colour. This keeps
+// that, refined: a thin underline sitting a little lower than the browser
+// default, softened at rest, that thickens, drops and takes the brand colour on hover.
+// Underlines stay on at rest so links never rely on colour alone (WCAG 1.4.1).
+//
+// Thickness and offset are tokens in theme.json (settings.custom.underline),
+// so they can be tuned from one place. Buttons are excluded: they carry
+// .wp-element-button and get no underline from theme.json either.
 
-	// Underline on hover and keyboard focus, so a link is still identifiable
-	// when its colour is close to the surrounding text (WCAG 1.4.1).
+a:where(:not(.wp-element-button)) {
+	overflow-wrap: break-word;
+	text-decoration-line: underline;
+	text-decoration-thickness: var(--wp--custom--underline--thickness);
+	text-decoration-color: color-mix(in srgb, currentcolor 45%, transparent);
+	text-decoration-skip-ink: auto;
+	text-underline-offset: var(--wp--custom--underline--offset);
+	transition:
+		color var(--wp--custom--transition--base),
+		text-decoration-color var(--wp--custom--transition--base),
+		text-decoration-thickness var(--wp--custom--transition--base),
+		text-underline-offset var(--wp--custom--transition--base);
+
 	&:hover,
 	&:focus-visible {
-		text-decoration: underline;
+		text-decoration-color: var(--wp--preset--color--primary);
+		text-decoration-thickness: var(--wp--custom--underline--thickness-hover);
+		text-underline-offset: var(--wp--custom--underline--offset-hover);
 	}
 }

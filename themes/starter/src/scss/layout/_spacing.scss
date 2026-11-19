@@ -1,0 +1,47 @@
+// ==========================================================================
+// Block spacing
+// ==========================================================================
+// WordPress spaces blocks with margin-block-start, from styles.spacing.blockGap
+// in theme.json (1.5rem):
+//
+//   :where(.wp-site-blocks) > *                    header, main, footer
+//   :root :where(.is-layout-flow) > *              children of flow groups
+//   :root :where(.is-layout-constrained) > *       children of constrained groups
+//
+// That gap is right between paragraphs, headings and images inside a section.
+// It is wrong between the sections themselves: design sections butt together
+// and carry their own padding. So:
+//
+// 1. Template regions (header, main, footer) stack with no gap.
+// 2. Full-width blocks at the top level of post content (design sections)
+//    get no margin. Their spacing comes from their own padding.
+// 3. Two opt-in utilities strip the gap anywhere else, for patterns and
+//    blocks that need it. Add them under Advanced › Additional CSS class:
+//      u-flush           no block margin on this block
+//      u-flush-children  no block margin between this block's children
+//
+// Everything here sits below inline styles, so a margin set in the editor's
+// Dimensions panel still wins. That is deliberate: the default is no gap, and
+// any block can be given one back.
+
+// 1. Template regions.
+.wp-site-blocks > * {
+	margin-block: 0;
+}
+
+// 2. Design sections at the top level of the content.
+.wp-block-post-content > .alignfull,
+.wp-block-post-content > .wp-block-cover.alignfull,
+.wp-block-post-content > .wp-block-group.alignfull {
+	margin-block: 0;
+}
+
+// 3. Utilities. :root raises specificity above core's :root :where() rules
+// without !important, so editor-set margins (inline styles) still win.
+:root .u-flush {
+	margin-block: 0;
+}
+
+:root .u-flush-children > * {
+	margin-block: 0;
+}

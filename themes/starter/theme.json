@@ -202,70 +202,106 @@
 					}
 				},
 				{
+					"slug": "fixed-12",
+					"size": "12px",
+					"name": "Static · 12px",
+					"fluid": false
+				},
+				{
+					"slug": "fixed-13",
+					"size": "13px",
+					"name": "Static · 13px",
+					"fluid": false
+				},
+				{
 					"slug": "fixed-14",
 					"size": "14px",
-					"name": "Fixed · 14px",
+					"name": "Static · 14px",
 					"fluid": false
 				},
 				{
 					"slug": "fixed-16",
 					"size": "16px",
-					"name": "Fixed · 16px",
+					"name": "Static · 16px",
 					"fluid": false
 				},
 				{
 					"slug": "fixed-18",
 					"size": "18px",
-					"name": "Fixed · 18px",
+					"name": "Static · 18px",
 					"fluid": false
 				},
 				{
 					"slug": "fixed-20",
 					"size": "20px",
-					"name": "Fixed · 20px",
+					"name": "Static · 20px",
+					"fluid": false
+				},
+				{
+					"slug": "fixed-22",
+					"size": "22px",
+					"name": "Static · 22px",
 					"fluid": false
 				},
 				{
 					"slug": "fixed-24",
 					"size": "24px",
-					"name": "Fixed · 24px",
+					"name": "Static · 24px",
 					"fluid": false
 				},
 				{
 					"slug": "fixed-28",
 					"size": "28px",
-					"name": "Fixed · 28px",
+					"name": "Static · 28px",
+					"fluid": false
+				},
+				{
+					"slug": "fixed-30",
+					"size": "30px",
+					"name": "Static · 30px",
 					"fluid": false
 				},
 				{
 					"slug": "fixed-32",
 					"size": "32px",
-					"name": "Fixed · 32px",
+					"name": "Static · 32px",
+					"fluid": false
+				},
+				{
+					"slug": "fixed-36",
+					"size": "36px",
+					"name": "Static · 36px",
 					"fluid": false
 				},
 				{
 					"slug": "fixed-40",
 					"size": "40px",
-					"name": "Fixed · 40px",
+					"name": "Static · 40px",
 					"fluid": false
 				},
 				{
 					"slug": "fixed-48",
 					"size": "48px",
-					"name": "Fixed · 48px",
+					"name": "Static · 48px",
 					"fluid": false
 				},
 				{
 					"slug": "fixed-60",
 					"size": "60px",
-					"name": "Fixed · 60px",
+					"name": "Static · 60px",
+					"fluid": false
+				},
+				{
+					"slug": "fixed-72",
+					"size": "72px",
+					"name": "Static · 72px",
 					"fluid": false
 				}
 			],
 			"fluid": {
 				"minViewportWidth": "375px",
 				"maxViewportWidth": "1440px",
-				"minFontSize": "14px"
+				"minFontSize": "12px"
 			}
 		},
 		"spacing": {
@@ -312,47 +348,67 @@
 				{
 					"slug": "fixed-4",
 					"size": "4px",
-					"name": "Fixed · 4px"
+					"name": "Static · 4px"
 				},
 				{
 					"slug": "fixed-8",
 					"size": "8px",
-					"name": "Fixed · 8px"
+					"name": "Static · 8px"
 				},
 				{
 					"slug": "fixed-12",
 					"size": "12px",
-					"name": "Fixed · 12px"
+					"name": "Static · 12px"
 				},
 				{
 					"slug": "fixed-16",
 					"size": "16px",
-					"name": "Fixed · 16px"
+					"name": "Static · 16px"
+				},
+				{
+					"slug": "fixed-20",
+					"size": "20px",
+					"name": "Static · 20px"
 				},
 				{
 					"slug": "fixed-24",
 					"size": "24px",
-					"name": "Fixed · 24px"
+					"name": "Static · 24px"
 				},
 				{
 					"slug": "fixed-32",
 					"size": "32px",
-					"name": "Fixed · 32px"
+					"name": "Static · 32px"
+				},
+				{
+					"slug": "fixed-40",
+					"size": "40px",
+					"name": "Static · 40px"
 				},
 				{
 					"slug": "fixed-48",
 					"size": "48px",
-					"name": "Fixed · 48px"
+					"name": "Static · 48px"
 				},
 				{
 					"slug": "fixed-64",
 					"size": "64px",
-					"name": "Fixed · 64px"
+					"name": "Static · 64px"
+				},
+				{
+					"slug": "fixed-80",
+					"size": "80px",
+					"name": "Static · 80px"
 				},
 				{
 					"slug": "fixed-96",
 					"size": "96px",
-					"name": "Fixed · 96px"
+					"name": "Static · 96px"
+				},
+				{
+					"slug": "fixed-128",
+					"size": "128px",
+					"name": "Static · 128px"
 				}
 			],
 			"units": [
@@ -369,6 +425,17 @@
 				"button": "4px",
 				"card": "8px",
 				"pill": "999px"
+			},
+			"transition": {
+				"fast": "150ms ease",
+				"base": "300ms cubic-bezier(0.2, 0.7, 0.2, 1)",
+				"slow": "450ms cubic-bezier(0.2, 0.7, 0.2, 1)"
+			},
+			"underline": {
+				"thickness": "1px",
+				"thicknessHover": "2px",
+				"offset": "0.22em",
+				"offsetHover": "0.3em"
 			}
 		},
 		"blocks": {}
@@ -451,13 +518,17 @@
 						"style": "solid",
 						"width": "2px"
 					}
+				},
+				"typography": {
+					"textDecoration": "underline"
 				}
 			},
 			"button": {
 				"typography": {
 					"fontFamily": "var(--wp--preset--font-family--body)",
 					"fontSize": "var(--wp--preset--font-size--medium)",
-					"fontWeight": "600"
+					"fontWeight": "600",
+					"textDecoration": "none"
 				},
 				"color": {
 					"background": "var(--wp--preset--color--primary)",
@@ -700,22 +771,66 @@
 			},
 			"core/button": {
 				"variations": {
-					"outline": {
+					"secondary": {
 						"color": {
-							"background": "transparent",
-							"text": "var(--wp--preset--color--primary)"
+							"background": "var(--wp--preset--color--secondary)",
+							"text": "var(--wp--preset--color--white)"
 						},
 						"border": {
-							"color": "var(--wp--preset--color--primary)",
-							"radius": "var(--wp--custom--border-radius--button)",
-							"style": "solid",
-							"width": "2px"
+							"radius": "var(--wp--custom--border-radius--button)"
 						},
 						":hover": {
 							"color": {
 								"background": "var(--wp--preset--color--primary)",
 								"text": "var(--wp--preset--color--white)"
 							}
+						},
+						":focus": {
+							"color": {
+								"background": "var(--wp--preset--color--primary)",
+								"text": "var(--wp--preset--color--white)"
+							}
+						},
+						":active": {
+							"color": {
+								"background": "var(--wp--preset--color--primary)"
+							}
+						}
+					}
+				}
+			},
+			"core/navigation": {
+				"elements": {
+					"link": {
+						"typography": {
+							"textDecoration": "none"
+						}
+					}
+				}
+			},
+			"core/site-title": {
+				"elements": {
+					"link": {
+						"typography": {
+							"textDecoration": "none"
+						}
+					}
+				}
+			},
+			"core/post-title": {
+				"elements": {
+					"link": {
+						"typography": {
+							"textDecoration": "none"
+						}
+					}
+				}
+			},
+			"core/site-logo": {
+				"elements": {
+					"link": {
+						"typography": {
+							"textDecoration": "none"
 						}
 					}
 				}

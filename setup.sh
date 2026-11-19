@@ -1968,7 +1968,7 @@ plan                                                  # package.json
 plan                                                  # dev server config
 plan                                                  # design tokens
 if [[ -n "$HEADING_FONT" || -n "$BODY_FONT" ]]; then plan; fi   # install fonts
-if [[ -n "$ADOBE_KIT_ID" ]]; then plan; fi                       # Adobe Fonts project ID
+plan                                                  # Adobe Fonts page: set up or removed
 plan                                                  # Claude Code config
 if [[ "$CREATE_PLUGIN" == "true" ]]; then
 	plan                                              # scaffold plugin
@@ -2372,24 +2372,49 @@ install by hand, for example:
 	fi
 fi
 
+# The Adobe Fonts settings page (inc/adobe-fonts.php) ships with the theme.
+# With an Adobe font it is configured; without one it is removed, so sites
+# that never use Adobe Fonts do not get an empty admin page.
 if [[ -n "$ADOBE_KIT_ID" ]]; then
 	step_start "Connecting Adobe Fonts"
 	set_context "writing the Adobe Fonts project ID" \
-"Could not update ${THEME_DIR}/inc/enqueue.php. Open it and set the return
-value of ${FUNC_PREFIX}adobe_fonts_kit_id() to '${ADOBE_KIT_ID}'."
+"Could not update ${THEME_DIR}/inc/adobe-fonts.php. Open it, set the return
+value of ${FUNC_PREFIX}adobe_fonts_default_id() to '${ADOBE_KIT_ID}', and list
+the Adobe families in ${FUNC_PREFIX}adobe_fonts_expected()."
 	if ! $DRY_RUN; then
-		# The ID is validated as letters and digits, so it is safe in a PHP string.
+		# The ID is validated as letters and digits, and font names as lowercase
+		# letters, digits and hyphens, so both are safe in a PHP string.
+		ADOBE_EXPECTED=""
+		if [[ "$HEADING_FONT_SOURCE" == "adobe" && -n "$HEADING_FONT" ]]; then
+			ADOBE_EXPECTED="'${HEADING_FONT}' => array( 400, 700 ),"
+		fi
+		if [[ "$BODY_FONT_SOURCE" == "adobe" && -n "$BODY_FONT" && "$BODY_FONT" != "$HEADING_FONT" ]]; then
+			ADOBE_EXPECTED="${ADOBE_EXPECTED:+$ADOBE_EXPECTED }'${BODY_FONT}' => array( 400, 700 ),"
+		fi
 		do_sed -e "s${SD}return '';[[:space:]]*// ADOBE_KIT_ID${SD}return '${ADOBE_KIT_ID}'; // ADOBE_KIT_ID${SD}" \
-			"${THEME_DIR}/inc/enqueue.php"
-		if ! grep -q "return '${ADOBE_KIT_ID}'; // ADOBE_KIT_ID" "${THEME_DIR}/inc/enqueue.php"; then
-			step_warn "marker not found in enqueue.php; set the project ID by hand"
+			-e "s${SD}// ADOBE_EXPECTED${SD}${ADOBE_EXPECTED}${SD}" \
+			"${THEME_DIR}/inc/adobe-fonts.php"
+		if ! grep -q "return '${ADOBE_KIT_ID}'; // ADOBE_KIT_ID" "${THEME_DIR}/inc/adobe-fonts.php"; then
+			step_warn "marker not found in adobe-fonts.php; set the project ID by hand"
 		else
 			MUTATED=true
-			step_ok "project ${ADOBE_KIT_ID} → https://use.typekit.net/${ADOBE_KIT_ID}.css"
+			step_ok "project ${ADOBE_KIT_ID} → https://use.typekit.net/${ADOBE_KIT_ID}.css (editable in Appearance › Adobe Fonts)"
 		fi
 	else
 		step_ok
 	fi
+else
+	step_start "Removing the unused Adobe Fonts settings page"
+	set_context "removing inc/adobe-fonts.php" \
+"Could not remove ${THEME_DIR}/inc/adobe-fonts.php or its require line in
+${THEME_DIR}/functions.php. Delete both by hand, or keep them if the client
+may use Adobe Fonts later."
+	if ! $DRY_RUN; then
+		rm -f -- "${THEME_DIR}/inc/adobe-fonts.php"
+		do_sed -e "/inc\/adobe-fonts\.php/d" "${THEME_DIR}/functions.php"
+		MUTATED=true
+	fi
+	step_ok "not needed: no font comes from Adobe Fonts"
 fi
 
 if ! $DRY_RUN && $HAVE_NODE; then
@@ -2460,7 +2485,7 @@ if [[ "$CREATE_PLUGIN" == "true" && -n "$PLUGIN_SLUG" ]]; then
 and that no directory with that name already exists."
 
 	if ! $DRY_RUN; then
-		PLUGIN_FILES_TOTAL=9
+		PLUGIN_FILES_TOTAL=11
 		if [[ "$SCAFFOLD_BINDINGS" == "true" ]]; then PLUGIN_FILES_TOTAL=$(( PLUGIN_FILES_TOTAL + 1 )); fi
 		if [[ "$SCAFFOLD_ABILITY" == "true" ]]; then PLUGIN_FILES_TOTAL=$(( PLUGIN_FILES_TOTAL + 1 )); fi
 		PLUGIN_FILES_DONE=0
@@ -2493,7 +2518,9 @@ This placeholder can be deleted once the directory has real content.
 ACFJSONEOF
 
 		# Build the require list for the main plugin file.
-		PLUGIN_REQUIRES="require_once ${PLUGIN_CONST}_PATH . 'includes/helpers.php';"
+		PLUGIN_REQUIRES="require_once ${PLUGIN_CONST}_PATH . 'includes/helpers.php';
+require_once ${PLUGIN_CONST}_PATH . 'includes/svg-uploads.php';
+require_once ${PLUGIN_CONST}_PATH . 'includes/webp.php';"
 		if [[ "$SCAFFOLD_BINDINGS" == "true" ]]; then
 			PLUGIN_REQUIRES="${PLUGIN_REQUIRES}
 require_once ${PLUGIN_CONST}_PATH . 'includes/block-bindings.php';"
@@ -2599,6 +2626,21 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 HELPEOF
+
+		# Media: SVG uploads and WebP siblings. These come from
+		# build/templates/plugin/ with the project's names filled in.
+		render_plugin_template() {   # render_plugin_template <name>
+			sed -e "s${SD}{{PFX}}${SD}${PLUGIN_PREFIX}${SD}g" \
+				-e "s${SD}{{CONST}}${SD}${PLUGIN_CONST}${SD}g" \
+				-e "s${SD}{{PLUGIN_SLUG}}${SD}${PLUGIN_SLUG}${SD}g" \
+				-e "s${SD}{{TITLE}}${SD}${PLUGIN_TITLE// /_}${SD}g" \
+				-e "s${SD}{{THEME_SLUG}}${SD}${THEME_SLUG}${SD}g" \
+				"build/templates/plugin/$1.php" > "plugins/${PLUGIN_SLUG}/includes/$1.php"
+		}
+		pfile "includes/svg-uploads.php"
+		render_plugin_template svg-uploads
+		pfile "includes/webp.php"
+		render_plugin_template webp
 
 		pfile "includes/post-types.php"
 		cat > "plugins/${PLUGIN_SLUG}/includes/post-types.php" << CPTEOF

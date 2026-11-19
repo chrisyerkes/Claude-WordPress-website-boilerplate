@@ -33,6 +33,14 @@ const entries = [
 		input: `${ THEME_DIR }/src/js/navigation.js`,
 		output: `${ THEME_DIR }/assets/js/navigation.js`,
 	},
+	{
+		input: `${ THEME_DIR }/src/js/motion.js`,
+		output: `${ THEME_DIR }/assets/js/motion.js`,
+	},
+	{
+		input: `${ THEME_DIR }/src/js/editor.js`,
+		output: `${ THEME_DIR }/assets/js/editor.js`,
+	},
 	// Add more entries as needed:
 	// {
 	// 	input: `${ THEME_DIR }/src/js/accordion.js`,

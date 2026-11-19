@@ -1,13 +1,75 @@
 // ==========================================================================
 // Buttons
 // ==========================================================================
-// Button styles beyond what theme.json provides.
-// Add custom block styles for core/button here.
+// Colours, type, padding and radius for both buttons are in theme.json:
+//   Primary   — styles.elements.button (the default button)
+//   Secondary — styles.blocks."core/button".variations.secondary (the "Secondary" block style)
+//
+// This file adds what theme.json cannot: the arrow icon, the layout that
+// pushes it to the right edge, and the transitions between states.
+//
+// The arrow is an SVG (assets/icons/arrow-right-long.svg) used as a CSS mask,
+// so it takes any colour. At rest it takes the primary colour; on hover it follows the text
+// colour. Add the class "has-no-icon" to a
+// button (Advanced › Additional CSS class) to drop the arrow.
 
-.wp-block-button__link {
-	transition: background-color 300ms ease, color 300ms ease, transform 150ms ease;
+.wp-block-button__link,
+.wp-element-button {
+	--starter-button-icon-color: var(--wp--preset--color--primary);
 
-	&:active {
-		transform: scale(0.98);
+	display: inline-flex;
+	gap: 0.9em;
+	align-items: center;
+	justify-content: space-between;
+	min-width: 11.5em;
+	text-align: start;
+	transition:
+		background-color var(--wp--custom--transition--base),
+		color var(--wp--custom--transition--base),
+		box-shadow var(--wp--custom--transition--base);
+
+	&::after {
+		flex: 0 0 auto;
+		width: 1.18em;
+		height: 0.68em;
+		content: "";
+		background-color: var(--starter-button-icon-color);
+		mask: url("../icons/arrow-right-long.svg") no-repeat center / contain;
+		transition:
+			background-color var(--wp--custom--transition--base),
+			transform var(--wp--custom--transition--base);
 	}
+
+	&:hover,
+	&:focus-visible {
+		--starter-button-icon-color: currentcolor;
+
+		&::after {
+			transform: translateX(0.2em);
+		}
+	}
+}
+
+// Secondary is the smaller button.
+.wp-block-button.is-style-secondary .wp-block-button__link {
+	min-width: 10em;
+}
+
+// Buttons that are not navigational (search, form submit) or that opt out.
+.wp-block-button.has-no-icon .wp-block-button__link,
+.wp-block-search__button,
+button.wp-element-button:not(.wp-block-button__link),
+input.wp-element-button {
+	justify-content: center;
+	min-width: 0;
+
+	&::after {
+		content: none;
+	}
+}
+
+// A button set to a width in the editor fills it, arrow still at the edge.
+.wp-block-button[class*="wp-block-button__width"] .wp-block-button__link {
+	width: 100%;
+	min-width: 0;
 }

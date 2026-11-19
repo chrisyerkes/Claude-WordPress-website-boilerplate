@@ -1,0 +1,74 @@
+// ==========================================================================
+// Motion
+// ==========================================================================
+// Every state change — colour, open/closed, shown/hidden — is animated.
+// Durations and easing are tokens in theme.json (settings.custom.transition):
+//   --wp--custom--transition--fast   150ms
+//   --wp--custom--transition--base   300ms
+//   --wp--custom--transition--slow   450ms
+//
+// Height animations (accordion panels, <details>) need a measured height, so
+// they are driven by src/js/motion.js. This file covers what CSS can do alone.
+
+// --------------------------------------------------------------------------
+// Navigation submenus: fade and drop in, fade out before hiding.
+// Core toggles opacity and visibility; this adds the movement and delays
+// visibility on close so the fade-out is seen.
+// --------------------------------------------------------------------------
+
+.wp-block-navigation .has-child .wp-block-navigation__submenu-container {
+	transform: translateY(-0.375rem);
+	transition:
+		opacity var(--wp--custom--transition--base),
+		transform var(--wp--custom--transition--base),
+		visibility 0s linear 300ms;
+}
+
+.wp-block-navigation .has-child:not(.open-on-click):hover > .wp-block-navigation__submenu-container,
+.wp-block-navigation .has-child:not(.open-on-click, .open-on-hover-click):focus-within > .wp-block-navigation__submenu-container,
+.wp-block-navigation .has-child .wp-block-navigation-submenu__toggle[aria-expanded="true"] ~ .wp-block-navigation__submenu-container {
+	transform: none;
+	transition-delay: 0s;
+}
+
+.wp-block-navigation-item__content {
+	transition: color var(--wp--custom--transition--base);
+}
+
+// --------------------------------------------------------------------------
+// Accordion panels and details (heights animated by motion.js)
+// --------------------------------------------------------------------------
+
+// flow-root contains the children's margins, so the measured height is the
+// height the panel actually occupies.
+.wp-block-accordion-panel {
+	display: flow-root;
+}
+
+.wp-block-accordion-heading__toggle,
+.wp-block-details summary {
+	transition: color var(--wp--custom--transition--base);
+}
+
+.wp-block-details summary::marker {
+	transition: color var(--wp--custom--transition--base);
+}
+
+// --------------------------------------------------------------------------
+// Reduced motion
+// --------------------------------------------------------------------------
+// !important is required here: the visitor's accessibility preference must
+// beat every transition in the theme, core and plugins (see rules/scss.md).
+
+/* stylelint-disable declaration-no-important -- accessibility preference, see above */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		scroll-behavior: auto !important;
+		transition-duration: 0.01ms !important;
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+	}
+}
+/* stylelint-enable declaration-no-important */
