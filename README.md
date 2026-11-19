@@ -67,7 +67,8 @@ The script will walk you through:
 - **Companion plugin scaffolding** (optional, creates a full plugin skeleton)
 - **WordPress version**, read from `../wp-includes/version.php` when core is present, so the `theme.json` schema is pinned to the release you are building against. You are only asked when core is not found.
 - **Primary, secondary and tertiary brand colors**, each with an optional name (`Primary · Slate Teal` in the editor). Also an optional off-white, any number of named accents, and an opt-in to derive `primary-dark`, `primary-light` and `secondary-dark`. Each color's WCAG contrast against white and black is printed; a color under 4.5:1 is flagged as decorative or large-text only. The check reports and never blocks.
-- **Heading and body fonts** (optional), by Fontsource name. They are downloaded once into `themes/<slug>/assets/fonts/`, so visitors make no third-party font request.
+- **Heading and body fonts** (optional). Each is the system font, a Fontsource font, or an Adobe Fonts font. Fontsource fonts are downloaded once into `themes/<slug>/assets/fonts/`, so visitors make no third-party font request. For Adobe Fonts, give the font's CSS name and your Web Project ID. The theme then loads `https://use.typekit.net/<ID>.css` on the front end and in the editor (a third-party request, with preconnect hints), and `theme.json` lists the family so it appears in the Site Editor. The font must be added to that Adobe project.
+- **Special characters.** Theme names, descriptions and author text can contain apostrophes, quotes, backslashes and ampersands (`FML CPA's`). Setup escapes each value for the PHP, JSON, JS or comment it is written into.
 - **Content and wide layout widths**, and the smallest and largest viewport for the fluid type and spacing scale
 - **npm install + initial build**
 - **Git initialization** with a clean first commit
@@ -158,6 +159,12 @@ DERIVE_SHADES=no
 # ── Fonts ── Fontsource names (fontsource.org). Blank keeps the system font.
 HEADING_FONT=fraunces
 BODY_FONT=inter
+# Source per font: fontsource (default) or adobe. For adobe, the name is the
+# font's CSS name from fonts.adobe.com (e.g. proxima-nova) and ADOBE_KIT_ID is
+# the Web Project ID from the embed link https://use.typekit.net/<ID>.css.
+# HEADING_FONT=freight-text-pro
+# HEADING_FONT_SOURCE=adobe
+# ADOBE_KIT_ID=abc1def
 
 # ── Layout ──
 CONTENT_WIDTH=1170
