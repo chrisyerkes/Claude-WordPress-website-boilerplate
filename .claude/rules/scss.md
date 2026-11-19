@@ -44,7 +44,25 @@ src/scss/
 
 Adding a partial means adding a matching `@use` in `main.scss`. Adding a new *entry point* means adding it to the `entries` array in `build/compile-scss.mjs` and enqueueing the result.
 
+## Motion
+
+Anything that changes state — colour, open/closed, shown/hidden — transitions. Use the tokens `--wp--custom--transition--fast|base|slow` from theme.json. Height changes (expand/collapse) go through `src/js/motion.js` (Web Animations API, `core/accordion` panels and `<details>`); add new collapsible components there rather than hand-rolling. `base/_motion.scss` collapses every duration under `prefers-reduced-motion: reduce`; its `!important` is the one justified exception, because a visitor's accessibility preference must beat every transition in the theme, core and plugins.
+
+## Links
+
+Text links are underlined at rest with the refined underline in `base/_typography.scss` (tokens `--wp--custom--underline--*`: thickness, thicknessHover, offset, offsetHover). Navigation, site title, post title, site logo and buttons opt out in theme.json (`elements.link.typography.textDecoration: "none"` on those blocks). Add a block there if its links should not be underlined.
+
+## Buttons
+
+Two buttons: the default is **Primary** (`styles.elements.button` in theme.json); **Secondary** is a block style registered in `inc/blocks.php` whose colours and states live in `styles.blocks."core/button".variations.secondary`. Core's "Fill" and "Outline" styles are removed by `src/js/editor.js` (PHP cannot unregister styles that core declares in `block.json`). The arrow is `assets/icons/arrow-right-long.svg` applied as a CSS mask on `::after` in `components/_buttons.scss`, coloured by `--starter-button-icon-color`. Add `has-no-icon` as an Additional CSS class to drop it. Do not add an "outline" variation back without a design for it.
+
+## Quote
+
+`blocks/_quote.scss` generates hanging open and close quotation marks (negative inline margin on the first paragraph's `::before`). `starter_quote_strip_typed_marks()` in `inc/blocks.php` removes marks an editor types at the start or end, so they never double. Remove both together if the project has no hanging quotes.
+
 ## Block spacing
+
+Project default: template regions (header, main, footer) and top-level full-width sections have **no** margin (`layout/_spacing.scss`); sections use padding. The utilities `u-flush` (the block) and `u-flush-children` (its children) strip margins elsewhere without `!important`, so a margin set in the editor still wins. Background on how core spaces blocks:
 
 WordPress injects `:root :where(.is-layout-flow) > * { margin-block-start: 24px }` onto direct children of any flow-layout group. Structural chrome — header, footer, overlays — must reset it with `> * { margin-block-start: 0; }` on the outermost container. `:where()` has zero specificity, so a plain child selector wins.
 

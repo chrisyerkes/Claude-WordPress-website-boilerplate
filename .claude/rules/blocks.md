@@ -40,6 +40,14 @@ A custom block is warranted for repeater data, multiple related fields, conditio
 - `viewScriptModule` for front-end ES-module JS, `viewScript` only for non-module vanilla JS, `viewStyle` for front-end-only CSS. **Classic scripts cannot depend on script modules**, so mixing the two fails silently.
 - To make a custom block's attributes bindable (and therefore overridable in patterns), add them via the `block_bindings_supported_attributes_{$block_type}` filter.
 
+## Full-width custom blocks
+
+A custom or ACF block that can go full width must behave like a core Group: declare `"align": ["wide", "full"]` and `"layout": { "default": { "type": "constrained" }, "allowSwitching": false, "allowEditing": true }` in `supports`, and render its inner content through `<InnerBlocks />` (ACF: `<InnerBlocks />` in the render template). That gives it the editor's "Inner blocks use content width" toggle and lets the editor override it. Default spacing is padding, never margin.
+
+## Editor parity
+
+Blocks and patterns must look like the live site in the editor (`main.css` is loaded into the editor iframe). Interactive pieces — sliders, carousels, tabs — only need to look right: render the first slide or tab statically in the editor and leave the behaviour to the front-end script. Editable fields live in the block sidebar when the block is selected (ACF `mode: "preview"`, `blockVersion` 3), not in an inline form that changes the layout.
+
 ## ACF blocks
 
 An ACF block is an ordinary block whose `block.json` carries an `acf` key. Register it with core's `register_block_type()` pointed at the directory. `acf_register_block_type()` has been deprecated since ACF 6.0 — do not use it.

@@ -21,14 +21,22 @@ if ( ! defined( 'ABSPATH' ) ) {
  * :hover, :focus, :focus-visible and :active states as of WordPress 7.0.
  * No CSS file is required.
  *
- * The matching styles for 'outline' ship in theme.json.
+ * The default button is the "Primary" button: its colours, type and states are
+ * in theme.json under styles.elements.button. 'secondary' is the second
+ * button; its colours and states live in theme.json under
+ * styles.blocks."core/button".variations.secondary, and the arrow icon for
+ * both is in src/scss/components/_buttons.scss.
+ *
+ * Core's own 'fill' and 'outline' styles are not offered: they would give
+ * editors off-brand buttons. Core registers them from its block.json, so PHP
+ * cannot unregister them; src/js/editor.js removes them in the editor.
  */
 function starter_register_block_styles() {
 	register_block_style(
 		'core/button',
 		array(
-			'name'  => 'outline',
-			'label' => __( 'Outline', 'starter' ),
+			'name'  => 'secondary',
+			'label' => __( 'Secondary', 'starter' ),
 		)
 	);
 
@@ -36,6 +44,31 @@ function starter_register_block_styles() {
 	// register_block_style( 'core/group', array( 'name' => 'card', 'label' => __( 'Card', 'starter' ) ) );
 }
 add_action( 'init', 'starter_register_block_styles' );
+
+/**
+ * Quote block: strip typed quotation marks.
+ *
+ * src/scss/blocks/_quote.scss generates hanging curly quotes around every
+ * quote in CSS. If an editor also types marks, they would appear twice, so
+ * leading marks on the first paragraph and trailing marks on the last are
+ * removed on output. The saved content is not changed. Delete this filter
+ * together with the CSS if the project does not use hanging quotes.
+ *
+ * @param string $block_content Rendered block HTML.
+ * @return string
+ */
+function starter_quote_strip_typed_marks( $block_content ) {
+	$marks = '(?:["\x{201C}\x{201D}\x{201E}\x{2033}]|&quot;|&#822[01];|&ldquo;|&rdquo;)';
+
+	// First paragraph: marks straight after the opening <p ...>.
+	$block_content = preg_replace( '~(<blockquote[^>]*>\s*<p[^>]*>)\s*' . $marks . '+~u', '$1', $block_content, 1 );
+
+	// Last paragraph: marks straight before the final </p>.
+	$block_content = preg_replace( '~' . $marks . '+\s*(</p>)(?!.*</p>)~us', '$1', $block_content, 1 );
+
+	return $block_content;
+}
+add_filter( 'render_block_core/quote', 'starter_quote_strip_typed_marks' );
 
 /**
  * Register theme block types.

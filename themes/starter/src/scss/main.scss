@@ -13,6 +13,7 @@
 @use 'base/reset';
 @use 'base/typography';
 @use 'base/accessibility';
+@use 'base/motion';
 
 // Components
 @use 'components/buttons';
@@ -24,10 +25,12 @@
 // Keep static appearance in theme.json so it stays editable in the Site
 // Editor; put only interactive states and behaviour here.
 @use 'blocks/accordion';
+@use 'blocks/quote';
 
 // @use 'blocks/example-block';
 
 // Layout
+@use 'layout/spacing';
 @use 'layout/header';
 @use 'layout/footer';
 @use 'layout/templates';

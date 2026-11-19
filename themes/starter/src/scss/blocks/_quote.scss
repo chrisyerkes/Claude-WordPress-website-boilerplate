@@ -1,0 +1,27 @@
+// ==========================================================================
+// Quote (core/quote)
+// ==========================================================================
+// The rule, padding, type and cite style are in theme.json under
+// styles.blocks."core/quote". This adds hanging quotation marks: the opening
+// mark sits outside the text edge so the words align.
+//
+// The marks are generated here, not typed. inc/blocks.php strips any marks an
+// editor does type at the start or end, so they never appear twice.
+
+.wp-block-quote {
+	quotes: "\201C" "\201D" "\2018" "\2019";
+
+	> p:first-of-type::before {
+		margin-inline-start: -0.45em;
+		content: open-quote;
+	}
+
+	> p:last-of-type::after {
+		content: close-quote;
+	}
+
+	cite {
+		display: block;
+		margin-block-start: 0.75rem;
+	}
+}

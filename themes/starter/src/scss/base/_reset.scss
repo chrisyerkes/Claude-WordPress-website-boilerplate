@@ -15,8 +15,13 @@ body {
 	-moz-osx-font-smoothing: grayscale;
 }
 
+// A <picture> added only to offer a WebP source (companion plugin) must not
+// change layout: the <img> inside keeps every class, size and position.
+picture.starter-webp {
+	display: contents;
+}
+
 img,
-picture,
 video,
 canvas,
 svg {

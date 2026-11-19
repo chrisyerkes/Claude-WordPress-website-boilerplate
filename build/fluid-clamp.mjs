@@ -9,7 +9,8 @@
  *            { min, max } in rem and let WordPress compute the clamp() from
  *            settings.typography.fluid. Spacing has no such computation in
  *            WordPress, so the clamp() expression is written here directly.
- *   Fixed  — one px value per slug, for places where a size must not move.
+ *   Static — one px value per slug (slug prefix fixed-), for places where a
+ *            size must not move. Labelled "Static" in the editor.
  *
  * Usage:
  *   node build/fluid-clamp.mjs                       Print the scale
@@ -24,7 +25,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-// Font sizes: [slug, label, minPx, maxPx]. Sizes are px at the viewport bounds.
+// Font sizes: [slug, label, minPx, maxPx, role?]. Sizes are px at the viewport
+// bounds. The optional role names what the size is for, so editors can pick by
+// purpose as well as by size, e.g. [ 'colossal', 'Colossal', 40, 60, 'H1 · H2' ] reads
+// "Fluid · Colossal (40 → 60px) · H1 · H2". Leave it out when a size has no role.
 export const FLUID_FONT_SIZES = [
 	[ 'small', 'Small', 14, 15 ],
 	[ 'medium', 'Medium', 16, 18 ],
@@ -36,7 +40,7 @@ export const FLUID_FONT_SIZES = [
 	[ 'colossal', 'Colossal', 52, 76 ],
 ];
 
-export const FIXED_FONT_SIZES = [ 14, 16, 18, 20, 24, 28, 32, 40, 48, 60 ];
+export const FIXED_FONT_SIZES = [ 12, 13, 14, 16, 18, 20, 22, 24, 28, 30, 32, 36, 40, 48, 60, 72 ];
 
 // Spacing: [slug, label, minPx, maxPx].
 export const FLUID_SPACING = [
@@ -49,10 +53,11 @@ export const FLUID_SPACING = [
 	[ '3-xl', '3XL', 80, 128 ],
 ];
 
-export const FIXED_SPACING = [ 4, 8, 12, 16, 24, 32, 48, 64, 96 ];
+export const FIXED_SPACING = [ 4, 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128 ];
 
 export const DEFAULT_VIEWPORT = { min: 375, max: 1440 };
-export const MIN_FONT_SIZE_PX = 14;
+// Floor for fluid type, in px. WordPress never computes a fluid size below it.
+export const MIN_FONT_SIZE_PX = 12;
 export const ROOT_PX = 16;
 
 const round = (n) => Math.round(n * 10000) / 10000;
@@ -80,20 +85,20 @@ export function fluidSpacingPresets(vmin, vmax) {
 }
 
 export function fixedSpacingPresets() {
-	return FIXED_SPACING.map((px) => ({ slug: `fixed-${px}`, size: `${px}px`, name: `Fixed · ${px}px` }));
+	return FIXED_SPACING.map((px) => ({ slug: `fixed-${px}`, size: `${px}px`, name: `Static · ${px}px` }));
 }
 
 export function fontSizePresets() {
-	const fluid = FLUID_FONT_SIZES.map(([ slug, label, min, max ]) => ({
+	const fluid = FLUID_FONT_SIZES.map(([ slug, label, min, max, role ]) => ({
 		slug,
 		size: rem(max),
-		name: `Fluid · ${label} (${min} → ${max}px)`,
+		name: `Fluid · ${label} (${min} → ${max}px)${role ? ` · ${role}` : ''}`,
 		fluid: { min: rem(min), max: rem(max) },
 	}));
 	const fixed = FIXED_FONT_SIZES.map((px) => ({
 		slug: `fixed-${px}`,
 		size: `${px}px`,
-		name: `Fixed · ${px}px`,
+		name: `Static · ${px}px`,
 		fluid: false,
 	}));
 	return [ ...fluid, ...fixed ];
